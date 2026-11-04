@@ -1,3 +1,4 @@
+import zlib from "node:zlib";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,4 +95,32 @@ export async function waitForFrame(
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   /* oxlint-enable no-await-in-loop */
+}
+
+function pngChunk(type: string, data: Uint8Array): Buffer {
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  const length = Buffer.alloc(4);
+  length.writeUInt32BE(data.length);
+  const crc = Buffer.alloc(4);
+  crc.writeUInt32BE(zlib.crc32(body));
+  return Buffer.concat([length, body, crc]);
+}
+
+/** A solid-colour PNG, built by hand so tests need no image files. */
+export function solidPng(width: number, height: number, [red, green, blue]: [number, number, number]): Uint8Array {
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header.set([8, 2, 0, 0, 0], 8); // 8 bits, RGB, no interlace
+  const row = Buffer.concat([
+    Buffer.from([0]),
+    Buffer.from(Array.from({ length: width }, () => [red, green, blue]).flat()),
+  ]);
+  const pixels = zlib.deflateSync(Buffer.concat(Array.from({ length: height }, () => row)));
+  return Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", pixels),
+    pngChunk("IEND", Buffer.alloc(0)),
+  ]);
 }

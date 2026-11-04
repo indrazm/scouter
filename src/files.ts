@@ -1,8 +1,10 @@
 import { constants } from "node:fs";
 import { open, readdir } from "node:fs/promises";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 
 const MAX_FILE_BYTES = 1024 * 1024;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 
 export interface DirectoryEntry {
   name: string;
@@ -14,6 +16,16 @@ export interface Document {
   path: string;
   text: string;
   lineCount: number;
+}
+
+export interface ImageFile {
+  path: string;
+  bytes: Uint8Array;
+}
+
+/** Whether the file name says it is a picture Scouter can show. */
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
 }
 
 export function displayText(text: string): string {
@@ -66,6 +78,21 @@ export async function readDocument(path: string): Promise<Document> {
     if (bytes.includes(0)) throw new Error("Binary files are not supported.");
     const text = displayText(decodeText(bytes)).replace(/\t/g, "    ");
     return { path, text, lineCount: text === "" ? 0 : text.replace(/\n$/, "").split("\n").length };
+  } finally {
+    await file.close();
+  }
+}
+
+/** Reads a picture's bytes, under the same rules as text files: regular files only, and a size limit. */
+export async function readImage(path: string): Promise<ImageFile> {
+  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  try {
+    const metadata = await file.stat();
+    if (!metadata.isFile()) throw new Error("Only regular files can be viewed.");
+    if (metadata.size > MAX_IMAGE_BYTES) throw new Error("Image is too large (limit: 10 MiB).");
+    const bytes = await file.readFile();
+    if (bytes.length > MAX_IMAGE_BYTES) throw new Error("Image is too large (limit: 10 MiB).");
+    return { path, bytes };
   } finally {
     await file.close();
   }

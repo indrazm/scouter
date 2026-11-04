@@ -17,7 +17,16 @@ import { Footer } from "./footer";
 import { PaneHeader, type HeaderBadge } from "./header";
 import { theme } from "./theme";
 import { createWelcome } from "./welcome";
-import { describeError, displayLabel, readDocument, type Document } from "./files";
+import {
+  describeError,
+  displayLabel,
+  isImagePath,
+  readDocument,
+  readImage,
+  type Document,
+  type ImageFile,
+} from "./files";
+import { ImageView, describeImage, type ImageDetails } from "./image-view";
 import { GitError } from "./git";
 
 const FALLBACK_SIDEBAR_BACKGROUND = "#131519";
@@ -49,6 +58,7 @@ export class ScouterApp {
   private readonly sidebarResizer: BoxRenderable;
   private readonly viewer: ScrollBoxRenderable;
   private readonly codeView: CodeView;
+  private readonly imageView: ImageView;
   private readonly footer: Footer;
   private readonly welcome: BoxRenderable;
   private readonly diffScreen: DiffScreen;
@@ -58,6 +68,7 @@ export class ScouterApp {
   private hasDocument = false;
   private documentTitle = "Reader";
   private document?: Document;
+  private isImage = false;
   private wrap = false;
   private workerClosed = Promise.resolve();
   private preferredSidebarWidth?: number;
@@ -65,7 +76,7 @@ export class ScouterApp {
 
   constructor(
     private readonly renderer: CliRenderer,
-    options: { diffPollMs?: number } = {},
+    options: { diffPollMs?: number; imageProtocol?: "auto" | "kitty" | "sixel" | "blocks" } = {},
   ) {
     const layout = new BoxRenderable(renderer, { width: "100%", height: "100%", flexDirection: "column" });
     const panes = new BoxRenderable(renderer, {
@@ -125,11 +136,15 @@ export class ScouterApp {
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => this.updatePosition() },
-      onSizeChange: () => this.updatePosition(),
+      onSizeChange: () => {
+        this.imageView.resize();
+        this.updatePosition();
+      },
     });
     this.viewer.visible = false;
     this.welcome = createWelcome(renderer);
     this.codeView = new CodeView(renderer, { onLayout: () => this.updatePosition() });
+    this.imageView = new ImageView(renderer, options.imageProtocol);
     this.footer = new Footer(renderer);
     this.diffScreen = new DiffScreen(renderer, {
       syntax: this.codeView.syntax,
@@ -144,6 +159,7 @@ export class ScouterApp {
     this.browserPanel.add(this.browser);
     this.browserPanel.add(this.diffScreen.list);
     this.codeView.mount(this.viewer);
+    this.imageView.mount(this.viewer);
     this.viewerPanel.add(this.viewerHeader.root);
     this.viewerPanel.add(this.welcome);
     this.viewerPanel.add(this.viewer);
@@ -192,13 +208,24 @@ export class ScouterApp {
 
   private async openPath(path: string): Promise<void> {
     if ((await stat(path)).isDirectory()) return this.openDirectory(path);
+    if (isImagePath(path)) {
+      const file = await readImage(path);
+      const details = describeImage(file.bytes);
+      if (await this.reveal(path)) this.showImage(file, details);
+      return;
+    }
     const document = await readDocument(path);
-    if (this.renderer.isDestroyed) return;
+    if (await this.reveal(path)) this.showDocument(document);
+  }
+
+  /** Expands the tree to `path` and selects it. False when the app was closed meanwhile. */
+  private async reveal(path: string): Promise<boolean> {
+    if (this.renderer.isDestroyed) return false;
     if (!this.tree.has(path)) await this.openDirectory(dirname(path));
-    if (this.renderer.isDestroyed) return;
+    if (this.renderer.isDestroyed) return false;
     this.tree.reveal(path);
     this.renderTree(path);
-    this.showDocument(document);
+    return true;
   }
 
   private async openDirectory(path: string): Promise<void> {
@@ -216,7 +243,27 @@ export class ScouterApp {
     this.browser.show(entries, selectedPath);
   }
 
+  private showImage(file: ImageFile, details: ImageDetails): void {
+    this.codeView.hide();
+    this.document = undefined;
+    this.isImage = true;
+    this.hasDocument = true;
+    this.welcome.visible = false;
+    this.viewer.visible = this.mode === "browse";
+    this.viewer.scrollTo({ x: 0, y: 0 });
+    this.imageView.show(file);
+    this.documentTitle = displayLabel(basename(file.path));
+    this.footer.setLocation(file.path);
+    this.footer.setDocument({ lines: 0, language: details.format, image: details });
+    this.updateChrome();
+    this.updatePosition();
+    if (this.mode === "browse") this.viewer.focus();
+    this.updateFocus();
+  }
+
   private showDocument(document: Document): void {
+    this.imageView.hide();
+    this.isImage = false;
     const language = this.codeView.show(document);
     this.document = document;
     this.hasDocument = true;
@@ -376,7 +423,8 @@ export class ScouterApp {
     // Rendered Markdown always wraps, so it shows `rendered` instead of `wrap`.
     const rendered = this.mode === "browse" && this.hasDocument && this.codeView.previewing;
     if (rendered) badges.push({ text: "rendered", kind: "quiet" });
-    if (this.wrap && !rendered) badges.push({ text: "wrap", kind: "pill" });
+    if (this.mode === "browse" && this.hasDocument && this.isImage) badges.push({ text: "image", kind: "quiet" });
+    if (this.wrap && !rendered && !this.isImage) badges.push({ text: "wrap", kind: "pill" });
     this.viewerHeader.setBadges(badges);
   }
 

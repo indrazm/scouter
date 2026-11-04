@@ -1,6 +1,6 @@
 # Scouter
 
-A read-only terminal file viewer with a built-in git diff screen. Browse a folder, read any file with syntax highlighting (Markdown shows rendered), and press `d` to see every change in your working tree on one page.
+A read-only terminal file viewer with a built-in git diff screen. Browse a folder, read any file with syntax highlighting (Markdown shows rendered, images show as pictures), and press `d` to see every change in your working tree on one page.
 
 ![Scouter showing a project folder and its welcome screen](docs/screenshot.png)
 

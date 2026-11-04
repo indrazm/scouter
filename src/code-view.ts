@@ -168,6 +168,13 @@ export class CodeView {
     return language;
   }
 
+  /** Another kind of file is on screen: show neither the source nor the preview. */
+  hide(): void {
+    this.document = undefined;
+    this.preview.visible = false;
+    this.lines.visible = false;
+  }
+
   private present(): void {
     const document = this.document;
     if (!document) return;

@@ -12,6 +12,8 @@ export interface DocumentInfo {
   language: string;
   /** Set for Markdown: whether it is shown rendered, so the hint can offer the other view. */
   rendered?: boolean;
+  /** Set for a picture, which has a size and format instead of lines and encoding. */
+  image?: { width: number; height: number; format: string };
 }
 
 export type DiffScope = "all" | "one";
@@ -45,7 +47,14 @@ const pillLabels: Record<FooterMode, Record<FooterFocus, string>> = {
   diff: { files: "CHANGES", reader: "DIFF" },
 };
 
-function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: DiffScope, rendered?: boolean): Hint[] {
+function hintsFor(
+  mode: FooterMode,
+  focus: FooterFocus,
+  wrap: boolean,
+  scope: DiffScope,
+  rendered?: boolean,
+  image = false,
+): Hint[] {
   const pan: Hint[] = wrap ? [] : [["h l", "pan"]];
   if (mode === "diff") {
     const other: Hint = ["a", scope === "all" ? "one file" : "all files"];
@@ -75,6 +84,13 @@ function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: Di
           ["d", "back"],
           ["q", "quit"],
         ];
+  }
+  if (image && focus !== "files") {
+    return [
+      ["Tab", "files"],
+      ["d", "changes"],
+      ["q", "quit"],
+    ];
   }
   const view: Hint[] = rendered === undefined ? [] : [["m", rendered ? "source" : "preview"]];
   return focus === "files"
@@ -282,6 +298,10 @@ export class Footer {
           });
         }
       }
+    } else if (this.document?.image) {
+      const { width, height, format } = this.document.image;
+      facts.push({ key: "size", segments: [{ text: `${width}×${height}`, fg: theme.muted }] });
+      facts.push({ key: "language", segments: [{ text: format, fg: theme.muted }] });
     } else if (this.document) {
       facts.push({ key: "lines", segments: [{ text: `${this.document.lines} lines`, fg: theme.muted }] });
       facts.push({ key: "language", segments: [{ text: this.document.language, fg: theme.muted }] });
@@ -297,7 +317,7 @@ export class Footer {
     const facts = this.candidateFacts();
     const width = (): number =>
       facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
-    for (const key of ["encoding", "language", "files", "lines", "hunks", "counts", "position"]) {
+    for (const key of ["encoding", "language", "files", "lines", "size", "hunks", "counts", "position"]) {
       if (width() <= columns) break;
       const index = facts.findIndex((fact) => fact.key === key);
       if (index >= 0) facts.splice(index, 1);
@@ -319,6 +339,7 @@ export class Footer {
       this.wrap,
       this.diff?.scope ?? "all",
       this.document?.rendered,
+      this.document?.image !== undefined,
     )) {
       const hint: Segment[] = [
         { text: key, fg: theme.accentSoft },

@@ -4,7 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
-import { waitForFrame, waitForText, withDirectory } from "./fixtures";
+import { solidPng, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 test("opens files from the browser, switches panes, and ignores editing input", () =>
   withDirectory(async (directory) => {
@@ -429,4 +429,38 @@ test("clicking folders keeps the sidebar focused, and a file that cannot open re
     await setup.waitForFrame((frame) => frame.includes("Binary files are not supported"));
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("browser");
     expect(setup.captureCharFrame()).toContain("1  text");
+  }));
+
+test("shows a picture in the reader with its size and format, and returns to text afterwards", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "red.png"), solidPng(32, 16, [220, 30, 30]));
+    await writeFile(join(directory, "broken.png"), "this is not a png");
+    await writeFile(join(directory, "plain.txt"), "after the picture\n");
+    await using setup = await createTestRenderer({ width: 100, height: 24 });
+    await using app = new ScouterApp(setup.renderer, { imageProtocol: "blocks" });
+
+    await app.open(join(directory, "red.png"));
+    await waitForText(setup, "32×16");
+    const frame = setup.captureCharFrame();
+    expect(frame).toContain("png");
+    expect(frame).toContain("image");
+    expect(frame).not.toContain("lines");
+    // The picture itself is drawn: some cell of the reader has the image's red as its colour.
+    const reds = setup
+      .captureSpans()
+      .lines.flatMap((line) => line.spans)
+      .filter((span) => {
+        const [red = 0, green = 0, blue = 0] = [...span.fg.toInts(), ...span.bg.toInts()].slice(0, 3);
+        return red > 150 && green < 90 && blue < 90;
+      });
+    expect(reds.length).toBeGreaterThan(0);
+
+    // A file with an image name that is not an image is refused, and the picture stays.
+    await app.open(join(directory, "broken.png"));
+    await waitForText(setup, "could not be read");
+    expect(setup.captureCharFrame()).toContain("32×16");
+
+    await app.open(join(directory, "plain.txt"));
+    await waitForText(setup, "1  after the picture");
+    expect(setup.captureCharFrame()).not.toContain("32×16");
   }));
