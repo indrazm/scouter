@@ -1,11 +1,15 @@
 import { expect, test } from "bun:test";
 import { chmod, copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { git, withDirectory } from "./fixtures";
 
 const root = join(import.meta.dir, "..");
 const installer = join(root, "install.sh");
+
+const unusedHome = join(tmpdir(), "scouter-test-unused", "home");
+const unusedBin = join(tmpdir(), "scouter-test-unused", "bin");
 
 interface Run {
   code: number;
@@ -19,7 +23,8 @@ async function run(
 ): Promise<Run> {
   const child = Bun.spawn(command, {
     cwd: options.cwd ?? root,
-    env: { ...process.env, ...options.env },
+    // Unless a test says otherwise, the installer's folders are throwaway ones, never the developer's real install.
+    env: { ...process.env, SCOUTER_HOME: unusedHome, SCOUTER_BIN_DIR: unusedBin, ...options.env },
     stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
     stdout: "pipe",
     stderr: "pipe",
@@ -158,7 +163,8 @@ test(
   () =>
     withDirectory(async (directory) => {
       const bin = join(directory, "bin");
-      const env = { SCOUTER_BIN_DIR: bin };
+      // Always point both folders at the temporary directory: the defaults are the developer's real install.
+      const env = { SCOUTER_BIN_DIR: bin, SCOUTER_HOME: join(directory, "home") };
       const install = await run(["bash", installer], { env });
       expect(install.out).toContain(`Installing from this checkout: ${root}`);
       const scouter = join(bin, "scouter");
