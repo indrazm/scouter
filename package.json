@@ -3,16 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "packageManager": "bun@1.4.4",
-  "engines": {
-    "bun": ">=1.4.4"
-  },
   "scripts": {
     "start": "bun src/index.ts",
     "dev": "bun --watch src/index.ts",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsrs --noEmit",
     "test": "bun test",
-    "check": "bun run typecheck && bun test"
+    "check": "bun run typecheck && bun run lint && bun run format:check && bun test",
+    "lint": "oxlint src tests",
+    "format": "oxfmt",
+    "format:check": "oxfmt --check"
   },
   "dependencies": {
     "@opentui/core": "0.8.2",
@@ -20,7 +19,13 @@
   },
   "devDependencies": {
     "@types/bun": "1.4.4",
-    "typescript": "5.9.3"
+    "oxfmt": "0.76.0",
+    "oxlint": "1.91.0",
+    "tsrs": "0.21.0-ts7.1.0-beta"
   },
+  "engines": {
+    "bun": ">=1.4.4"
+  },
+  "packageManager": "bun@1.4.4",
   "trustedDependencies": []
 }
