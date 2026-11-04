@@ -2,6 +2,8 @@
 
 A read-only terminal file viewer with a built-in git diff screen. Browse a folder, read any file with syntax highlighting, and press `d` to see every change in your working tree on one page.
 
+![Scouter showing a project folder and its welcome screen](docs/screenshot.png)
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/indrazm/scouter/main/install.sh | bash
 scouter .
@@ -36,4 +38,4 @@ scouter --upgrade
 ~/.scouter/install.sh --uninstall
 ```
 
-Building on Scouter? See [DEVELOPMENT.md](DEVELOPMENT.md).
+Building on Scouter? See [DEVELOPMENT.md](DEVELOPMENT.md). Released under the [MIT License](LICENSE).
