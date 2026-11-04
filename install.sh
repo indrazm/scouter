@@ -94,16 +94,20 @@ fetch_copy() {
     [ -z "$(ls -A "$INSTALL_DIR" 2>/dev/null)" ] ||
       fail "$INSTALL_DIR already exists and was not created by this installer. Set SCOUTER_HOME to another folder."
   fi
+  # A first install and an update take the same path: fetch the one wanted commit, then move to it. (A shallow
+  # `git clone --branch` of an annotated tag prints a spurious "is not a commit!" warning with some git versions.)
   if [ -f "$INSTALL_DIR/$CLONE_MARKER" ]; then
     say "Updating Scouter ($ref)…"
-    git -C "$INSTALL_DIR" fetch --quiet --depth 1 origin "$ref" || fail "Could not fetch '$ref' from $REPO_URL."
-    git -C "$INSTALL_DIR" reset --hard --quiet FETCH_HEAD
   else
     say "Downloading Scouter ($ref)…"
-    git -c advice.detachedHead=false clone --quiet --depth 1 --branch "$ref" "$REPO_URL" "$INSTALL_DIR" ||
-      fail "Could not download '$ref' from $REPO_URL."
+    git init --quiet --initial-branch=main "$INSTALL_DIR" || fail "Could not create $INSTALL_DIR."
+    git -C "$INSTALL_DIR" remote add origin "$REPO_URL"
+    # Marked before the download, so a failed first attempt is simply resumed by running the installer again.
     : >"$INSTALL_DIR/$CLONE_MARKER"
   fi
+  git -C "$INSTALL_DIR" -c advice.detachedHead=false fetch --quiet --depth 1 origin "$ref" ||
+    fail "Could not download '$ref' from $REPO_URL."
+  git -C "$INSTALL_DIR" reset --hard --quiet FETCH_HEAD
   app_dir="$INSTALL_DIR"
 }
 
