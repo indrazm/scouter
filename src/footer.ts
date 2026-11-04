@@ -1,0 +1,234 @@
+import { BoxRenderable, TextRenderable, type CliRenderer } from "@opentui/core";
+import { homedir } from "node:os";
+import { displayLabel } from "./files";
+import { fitEnd, fitStart, segmentsWidth, styled, type Segment } from "./styled";
+import { theme } from "./theme";
+
+export type FooterMode = "browse" | "diff";
+export type FooterFocus = "files" | "reader";
+
+export interface DocumentInfo {
+  lines: number;
+  language: string;
+}
+
+export interface DiffInfo {
+  /** Repository-relative path of the highlighted file, or the repository name when nothing is highlighted. */
+  location: string;
+  files: number;
+  /** More files changed than are listed. */
+  truncated?: boolean;
+  /** Line counts and hunks of the diff on screen, when there is one. */
+  added?: number;
+  removed?: number;
+  hunks?: number;
+}
+
+type Hint = [key: string, action: string];
+
+interface Fact {
+  key: string;
+  segments: Segment[];
+}
+
+const MIN_LOCATION_COLUMNS = 16;
+const HINT_GAP = "   ";
+
+const pillLabels: Record<FooterMode, Record<FooterFocus, string>> = {
+  browse: { files: "FILES", reader: "READER" },
+  diff: { files: "CHANGES", reader: "DIFF" },
+};
+
+function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean): Hint[] {
+  const pan: Hint[] = wrap ? [] : [["h l", "pan"]];
+  if (mode === "diff") {
+    return focus === "files"
+      ? [["j k", "move"], ["Enter", "view"], ["Tab", "diff"], ["s", "split"], ["r", "refresh"], ["d", "back"], ["^←→", "resize"], ["q", "quit"]]
+      : [["j k", "scroll"], ["n p", "hunk"], ["s", "split"], ["Tab", "files"], ["w", "wrap"], ...pan, ["g G", "top/bottom"],
+        ["^d ^u", "page"], ["r", "refresh"], ["d", "back"], ["q", "quit"]];
+  }
+  return focus === "files"
+    ? [["j k", "move"], ["Enter", "open"], ["h", "back"], ["Tab", "reader"], ["d", "changes"], ["w", "wrap"], ["^←→", "resize"], ["q", "quit"]]
+    : [["j k", "scroll"], ...pan, ["g G", "top/bottom"], ["^d ^u", "page"], ["Tab", "files"], ["d", "changes"], ["w", "wrap"], ["q", "quit"]];
+}
+
+function tildify(path: string): string {
+  const home = homedir();
+  return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
+}
+
+/**
+ * Two rows: a status bar (active pane, where you are, facts about the file or diff, scroll position) and a row
+ * of key hints that follows the active pane. Content that does not fit is dropped by priority, never wrapped.
+ * Browsing and the diff screen each keep their own location, facts and scroll position.
+ */
+export class Footer {
+  readonly root: BoxRenderable;
+  private readonly band: BoxRenderable;
+  private readonly left: TextRenderable;
+  private readonly right: TextRenderable;
+  private readonly hintRow: TextRenderable;
+  private mode: FooterMode = "browse";
+  private focus: FooterFocus = "files";
+  private message?: { text: string; error: boolean };
+  private location = "";
+  private document?: DocumentInfo;
+  private diff?: DiffInfo;
+  private readonly positions: Record<FooterMode, string | undefined> = { browse: undefined, diff: undefined };
+  private wrap = false;
+
+  constructor(private readonly renderer: CliRenderer) {
+    this.root = new BoxRenderable(renderer, { id: "footer", width: "100%", height: 2, flexDirection: "column", flexShrink: 0 });
+    this.band = new BoxRenderable(renderer, {
+      id: "status", width: "100%", height: 1, flexDirection: "row", flexShrink: 0, paddingLeft: 1, paddingRight: 1,
+    });
+    this.left = new TextRenderable(renderer, {
+      height: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, wrapMode: "none", selectable: false,
+    });
+    this.right = new TextRenderable(renderer, { height: 1, flexShrink: 0, wrapMode: "none", selectable: false });
+    this.hintRow = new TextRenderable(renderer, {
+      id: "hints", height: 1, width: "100%", flexShrink: 0, wrapMode: "none", selectable: false,
+    });
+    this.band.add(this.left);
+    this.band.add(this.right);
+    this.root.add(this.band);
+    this.root.add(this.hintRow);
+    renderer.on("resize", this.render);
+    renderer.once("destroy", () => renderer.off("resize", this.render));
+    this.render();
+  }
+
+  setBackground(color: string): void {
+    this.band.backgroundColor = color;
+    this.renderer.requestRender();
+  }
+
+  setMode(mode: FooterMode): void {
+    if (mode === this.mode) return;
+    this.mode = mode;
+    this.message = undefined;
+    this.render();
+  }
+
+  setFocus(focus: FooterFocus): void {
+    if (focus === this.focus) return;
+    this.focus = focus;
+    this.render();
+  }
+
+  /** Where the user is while browsing. Replaces any message, which only describes the operation that just ran. */
+  setLocation(path: string): void {
+    this.location = tildify(displayLabel(path));
+    this.message = undefined;
+    this.render();
+  }
+
+  setMessage(text: string, error = false): void {
+    this.message = { text, error };
+    this.render();
+  }
+
+  clearMessage(): void {
+    this.message = undefined;
+    this.render();
+  }
+
+  setDocument(document: DocumentInfo | undefined): void {
+    this.document = document;
+    if (!document) this.positions.browse = undefined;
+    this.render();
+  }
+
+  setDiff(diff: DiffInfo | undefined): void {
+    this.diff = diff && { ...diff, location: displayLabel(diff.location) };
+    if (!diff) this.positions.diff = undefined;
+    this.render();
+  }
+
+  /** Scroll position of whichever reader the current mode shows. */
+  setPosition(position: string | undefined): void {
+    if (position === this.positions[this.mode]) return;
+    this.positions[this.mode] = position;
+    this.render();
+  }
+
+  setWrap(wrap: boolean): void {
+    this.wrap = wrap;
+    this.render();
+  }
+
+  private readonly render = (): void => {
+    if (this.renderer.isDestroyed) return;
+    const inner = Math.max(0, this.renderer.width - 2);
+    const pill: Segment = {
+      text: ` ${pillLabels[this.mode][this.focus]} `, fg: theme.accentInk, bg: theme.accent, bold: true,
+    };
+    const facts = this.fitFacts(inner - segmentsWidth([pill]) - 1 - MIN_LOCATION_COLUMNS);
+    const factsWidth = segmentsWidth(facts);
+    const room = Math.max(0, inner - segmentsWidth([pill]) - 1 - (factsWidth ? factsWidth + 2 : 0));
+    this.left.content = styled([pill, { text: " " }, ...this.describe(room)]);
+    this.right.content = styled(facts);
+    this.hintRow.content = styled([{ text: " " }, ...this.fitHints(Math.max(0, this.renderer.width - 2))]);
+    this.renderer.requestRender();
+  };
+
+  private describe(columns: number): Segment[] {
+    if (this.message) {
+      return [{ text: fitStart(this.message.text, columns), fg: this.message.error ? theme.error : theme.accentSoft }];
+    }
+    const shown = fitEnd(this.mode === "diff" ? this.diff?.location ?? "" : this.location, columns);
+    const cut = shown.lastIndexOf("/", shown.length - 2) + 1;
+    return [{ text: shown.slice(0, cut), fg: theme.dim }, { text: shown.slice(cut), fg: theme.text }];
+  }
+
+  private candidateFacts(): Fact[] {
+    const facts: Fact[] = [];
+    if (this.mode === "diff") {
+      const diff = this.diff;
+      if (diff) {
+        const files = `${diff.files}${diff.truncated ? "+" : ""} ${diff.files === 1 && !diff.truncated ? "file" : "files"}`;
+        facts.push({ key: "files", segments: [{ text: files, fg: theme.muted }] });
+        if (diff.hunks !== undefined) {
+          facts.push({ key: "hunks", segments: [{ text: `${diff.hunks} ${diff.hunks === 1 ? "hunk" : "hunks"}`, fg: theme.muted }] });
+        }
+        if (diff.added !== undefined && diff.removed !== undefined) {
+          facts.push({
+            key: "counts",
+            segments: [{ text: `+${diff.added}`, fg: theme.added }, { text: " " }, { text: `−${diff.removed}`, fg: theme.removed }],
+          });
+        }
+      }
+    } else if (this.document) {
+      facts.push({ key: "lines", segments: [{ text: `${this.document.lines} lines`, fg: theme.muted }] });
+      facts.push({ key: "language", segments: [{ text: this.document.language, fg: theme.muted }] });
+      facts.push({ key: "encoding", segments: [{ text: "UTF-8", fg: theme.muted }] });
+    }
+    const position = this.positions[this.mode];
+    if (position) facts.push({ key: "position", segments: [{ text: position, fg: theme.text }] });
+    return facts;
+  }
+
+  /** Right-hand facts in display order, dropped lowest-priority first until they fit `columns`. */
+  private fitFacts(columns: number): Segment[] {
+    const facts = this.candidateFacts();
+    const width = (): number => facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
+    for (const key of ["encoding", "language", "files", "lines", "hunks", "counts", "position"]) {
+      if (width() <= columns) break;
+      const index = facts.findIndex((fact) => fact.key === key);
+      if (index >= 0) facts.splice(index, 1);
+    }
+    if (width() > columns) return [];
+    return facts.flatMap((fact, index) => [...(index ? [{ text: "  " }] : []), ...fact.segments]);
+  }
+
+  private fitHints(columns: number): Segment[] {
+    const segments: Segment[] = [];
+    for (const [key, action] of hintsFor(this.mode, this.focus, this.wrap)) {
+      const hint: Segment[] = [{ text: key, fg: theme.accentSoft }, { text: ` ${action}`, fg: theme.dim }];
+      const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
+      if (segmentsWidth(next) > columns) break;
+      segments.splice(0, segments.length, ...next);
+    }
+    return segments;
+  }
+}
