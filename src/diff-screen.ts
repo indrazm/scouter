@@ -13,7 +13,7 @@ import { ChangeList } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError } from "./files";
 import {
-  GitError, closeRepository, listChanges, openRepository, readPatch, type Change, type Patch, type Repository,
+  GitError, closeRepository, listChanges, openRepository, readPatch, type Change, type ChangeSet, type Patch, type Repository,
 } from "./git";
 import { styled } from "./styled";
 import { theme } from "./theme";
@@ -40,8 +40,18 @@ interface DiffScreenOptions {
   onChange: () => void;
   /** The user opened the highlighted file (Enter or a click) and wants to read its diff. */
   onActivate: () => void;
+  /** The user clicked a file that has no diff to read, so the click belongs to the list. */
+  onFocusList: () => void;
   /** The diff's rendered size changed, so the scroll position readout may be stale. */
   onLayout: () => void;
+  /** How often to re-read git while the screen is watched. */
+  pollMs: number;
+}
+
+function signature(result: ChangeSet): string {
+  const rows = result.changes.map((change) =>
+    [change.path, change.oldPath, change.kind, change.added, change.removed, change.binary].join("\0"));
+  return `${result.truncated}\n${rows.join("\n")}`;
 }
 
 /** Added and removed lines are tinted lightly so the diff reads on any terminal background. */
@@ -79,6 +89,13 @@ export class DiffScreen {
   private pending = false;
   /** The user opened a file whose diff was still loading; hand focus over once it arrives. */
   private activateWhenReady = false;
+  private watching = false;
+  private timer?: ReturnType<typeof setTimeout>;
+  /** Fingerprint of the list on screen, so a refresh only redraws it when something actually changed. */
+  private signature = "";
+  /** Path of the file whose diff is on screen, if any. */
+  private shownPath?: string;
+  private messageKey = "";
 
   constructor(context: RenderContext, private readonly options: DiffScreenOptions) {
     this.list = new ChangeList(context, {
@@ -120,6 +137,11 @@ export class DiffScreen {
     return this.patch !== undefined;
   }
 
+  /** Whether there is anything listed at all, whatever the highlighted file shows. */
+  get hasChanges(): boolean {
+    return this.changes.length > 0;
+  }
+
   state(): DiffState {
     return {
       repository: this.repository ? basename(this.repository.root) : "",
@@ -137,10 +159,9 @@ export class DiffScreen {
    * for the footer when there is nothing to show, such as outside a repository.
    */
   async load(directory: string): Promise<void> {
-    const keep = this.selected?.path;
     const previous = this.repository;
     const repository = previous && directory === this.directory ? previous : await openRepository(directory);
-    let result;
+    let result: ChangeSet;
     try {
       result = await listChanges(repository);
     } catch (error) {
@@ -152,29 +173,37 @@ export class DiffScreen {
       this.repository = repository;
       this.directory = directory;
     }
-    this.changes = result.changes;
-    this.truncated = result.truncated;
-    this.request += 1;
-    this.selected = undefined;
-    this.patch = undefined;
-    this.pending = false;
-    this.activateWhenReady = false;
-    if (!result.changes.length) {
-      this.list.show([]);
-      this.showMessage("No changes", this.repository ? `The working tree matches ${this.baseLabel()}.` : "");
-      this.options.onChange();
-      return;
-    }
-    this.list.show(result.changes, keep);
+    this.apply(result);
   }
 
   private directory = "";
 
+  /** Starts re-reading git in the background, so commits, staging and edits show up without pressing `r`. */
+  watch(): void {
+    if (this.watching) return;
+    this.watching = true;
+    this.schedule(this.options.pollMs);
+  }
+
+  unwatch(): void {
+    this.watching = false;
+    clearTimeout(this.timer);
+  }
+
+  /** Stops watching, forgets what was on screen and removes the private index copy. */
   async close(): Promise<void> {
+    this.unwatch();
     const repository = this.repository;
     this.repository = undefined;
     this.directory = "";
     this.request += 1;
+    this.changes = [];
+    this.selected = undefined;
+    this.patch = undefined;
+    this.shownPath = undefined;
+    this.signature = "";
+    this.pending = false;
+    this.activateWhenReady = false;
     if (repository) await closeRepository(repository);
   }
 
@@ -198,6 +227,59 @@ export class DiffScreen {
     if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
   }
 
+  /** Enter or a click on the highlighted file: hand focus to its diff, now or as soon as it has loaded. */
+  openSelected(): void {
+    if (this.pending) this.activateWhenReady = true;
+    else if (this.patch) this.options.onActivate();
+    else this.options.onFocusList();
+  }
+
+  private schedule(delay: number): void {
+    this.timer = setTimeout(() => void this.poll(), delay);
+    this.timer.unref?.();
+  }
+
+  private async poll(): Promise<void> {
+    if (!this.watching) return;
+    const started = Date.now();
+    try {
+      await this.refresh();
+    } catch {
+      // A failed read, such as git being busy, keeps what is on screen; the next poll tries again.
+    }
+    // A slow repository is polled less often, so watching never keeps git busy.
+    if (this.watching) this.schedule(Math.max(this.options.pollMs, (Date.now() - started) * 3));
+  }
+
+  /** Re-reads the changes and, if the list did not move, the highlighted file's diff, which may have been edited. */
+  private async refresh(): Promise<void> {
+    const repository = this.repository;
+    if (!repository) return;
+    const result = await listChanges(repository);
+    if (repository !== this.repository) return;
+    if (signature(result) !== this.signature) this.apply(result);
+    else if (this.selected) await this.reread(this.selected);
+  }
+
+  /** Shows a fresh list of changes, keeping the highlight on the same file where it still exists. */
+  private apply(result: ChangeSet): void {
+    const keep = this.selected?.path;
+    this.changes = result.changes;
+    this.truncated = result.truncated;
+    this.signature = signature(result);
+    if (result.changes.length) {
+      this.list.show(result.changes, keep);
+    } else {
+      this.request += 1;
+      this.selected = undefined;
+      this.pending = false;
+      this.activateWhenReady = false;
+      this.list.show([]);
+      this.showMessage("No changes", `The working tree matches ${this.baseLabel()}.`);
+    }
+    this.options.onChange();
+  }
+
   private baseLabel(): string {
     return this.repository?.base === "HEAD" ? "HEAD" : "an empty repository";
   }
@@ -208,46 +290,72 @@ export class DiffScreen {
     this.activateWhenReady = false;
     this.pending = change !== undefined;
     if (!change || !this.repository) return;
-    let patch: Patch;
-    try {
-      patch = await readPatch(this.repository, change);
-    } catch (error) {
-      patch = { kind: "notice", message: error instanceof GitError ? error.message : describeError(error) };
-    }
+    const patch = await this.read(this.repository, change);
     if (request !== this.request) return;
     this.pending = false;
-    if (patch.kind === "text") this.showPatch(change, patch);
-    else this.showMessage(change.path, patch.message);
-    this.options.onChange();
+    this.present(change, patch);
     if (this.activateWhenReady) {
       this.activateWhenReady = false;
       if (this.patch) this.options.onActivate();
+      else this.options.onFocusList();
     }
   }
 
-  /** Enter or a click on the highlighted file: hand focus to its diff, now or as soon as it has loaded. */
-  openSelected(): void {
-    if (this.pending) this.activateWhenReady = true;
-    else if (this.patch) this.options.onActivate();
+  /** Reads the highlighted file's diff again without touching the selection or any pending Enter. */
+  private async reread(change: Change): Promise<void> {
+    const repository = this.repository;
+    if (!repository) return;
+    const patch = await this.read(repository, change);
+    if (repository !== this.repository || this.selected !== change || this.pending) return;
+    this.present(change, patch);
+  }
+
+  private async read(repository: Repository, change: Change): Promise<Patch> {
+    try {
+      return await readPatch(repository, change);
+    } catch (error) {
+      return { kind: "notice", message: error instanceof GitError ? error.message : describeError(error) };
+    }
+  }
+
+  /** Puts a diff or message on screen, doing nothing when it is what the reader already shows. */
+  private present(change: Change, patch: Patch): void {
+    if (patch.kind === "text") {
+      if (this.shownPath === change.path && this.patch?.text === patch.text) return;
+      this.showPatch(change, patch);
+    } else if (!this.showMessage(change.path, patch.message)) {
+      return;
+    }
+    this.options.onChange();
   }
 
   private showPatch(change: Change, patch: Extract<Patch, { kind: "text" }>): void {
+    // The same file edited underneath the reader keeps its scroll position; a different file starts at the top.
+    const sameFile = this.shownPath === change.path;
+    this.shownPath = change.path;
+    this.messageKey = "";
     this.patch = patch;
     this.diff.filetype = languageFor(change.path);
     this.diff.diff = patch.text;
     this.applyWrap();
     this.scroller.visible = true;
     this.message.visible = false;
-    this.scroller.scrollTo({ x: 0, y: 0 });
+    if (!sameFile) this.scroller.scrollTo({ x: 0, y: 0 });
   }
 
-  private showMessage(title: string, detail: string): void {
+  /** Returns false when this exact message is already showing. */
+  private showMessage(title: string, detail: string): boolean {
+    const key = `${title}\0${detail}`;
+    if (key === this.messageKey && this.patch === undefined) return false;
+    this.messageKey = key;
+    this.shownPath = undefined;
     this.patch = undefined;
     this.messageTitle.content = styled([{ text: title, fg: theme.text, bold: true }]);
     this.messageDetail.content = styled([{ text: detail, fg: theme.muted }]);
     this.messageDetail.visible = detail !== "";
     this.message.visible = true;
     this.scroller.visible = false;
+    return true;
   }
 
   /** Wrapped text is laid out against the viewport width; unwrapped lines may run past it and scroll sideways. */

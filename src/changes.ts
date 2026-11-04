@@ -52,12 +52,18 @@ export class ChangeList extends ScrollBoxRenderable {
     this.options = options;
   }
 
+  /**
+   * Replaces the rows. The highlight stays on `selectedPath`; if that file is gone (committed, say), it stays near
+   * where it was so the user is not thrown back to the top of the list.
+   */
   show(changes: Change[], selectedPath?: string): void {
+    const previous = this.selectedIndex;
     for (const row of this.rows) row.box.destroyRecursively();
     this.rows = changes.map((change, index) => this.createRow(change, index));
     this.selectedIndex = -1;
     const keep = changes.findIndex((change) => change.path === selectedPath);
-    this.selectIndex(changes.length ? Math.max(0, keep) : -1);
+    const nearby = Math.min(Math.max(previous, 0), changes.length - 1);
+    this.selectIndex(changes.length ? (keep >= 0 ? keep : nearby) : -1);
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
   }
 
@@ -92,7 +98,8 @@ export class ChangeList extends ScrollBoxRenderable {
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
         event.preventDefault();
-        this.focus();
+        // No focus change here: opening a diff ends with the reader focused, and taking focus on the way would
+        // flash both panes. The owner focuses whichever pane the click leads to.
         this.selectIndex(index);
         this.options.onActivate();
       },

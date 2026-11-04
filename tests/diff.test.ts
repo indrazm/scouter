@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { ScrollBoxRenderable } from "@opentui/core";
+import { BoxRenderable, ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -212,4 +212,145 @@ test("w wraps long diff lines to the reader's width, and d returns with the side
   await setup.renderOnce();
   expect(setup.captureCharFrame()).toContain("wide.txt");
   expect(footer(setup).status).toContain("FILES");
+}));
+
+const FAST_POLL = { diffPollMs: 40 };
+
+test("follows a commit made elsewhere without pressing r", () => withDirectory(async (directory) => {
+  await createRepository(directory, { "a.txt": "one\n", "b.txt": "two\n" });
+  await writeFile(join(directory, "a.txt"), "one changed\n");
+  await writeFile(join(directory, "b.txt"), "two changed\n");
+  await using setup = await createTestRenderer({ width: 100, height: 16 });
+  await using app = new ScouterApp(setup.renderer, FAST_POLL);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "2 files");
+
+  git(directory, "commit", "--all", "--quiet", "-m", "from another terminal");
+  await waitForText(setup, "No changes");
+  expect(footer(setup).status).toContain("0 files");
+  expect(footer(setup).status).not.toContain("Loading");
+
+  await writeFile(join(directory, "c.txt"), "created after the commit\n");
+  await waitForText(setup, "created after the commit");
+  expect(footer(setup).status).toContain("1 file");
+}));
+
+test("keeps the highlight near its place when its file is committed", () => withDirectory(async (directory) => {
+  const names = ["a.txt", "b.txt", "c.txt"];
+  await createRepository(directory, Object.fromEntries(names.map((name) => [name, "x\n"])));
+  for (const name of names) await writeFile(join(directory, name), `${name} changed\n`);
+  await using setup = await createTestRenderer({ width: 100, height: 16 });
+  await using app = new ScouterApp(setup.renderer, FAST_POLL);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "a.txt changed");
+  setup.mockInput.pressKey("j");
+  await waitForText(setup, "b.txt changed");
+
+  git(directory, "add", "b.txt");
+  git(directory, "commit", "--quiet", "-m", "only b");
+  await waitForText(setup, "2 files");
+  await waitForText(setup, "c.txt changed");
+  expect(footer(setup).status).toContain("c.txt");
+  expect(setup.captureCharFrame()).not.toContain("b.txt changed");
+}));
+
+test("redraws an edited diff in place, and leaves the reader alone while nothing changes", () => withDirectory(async (directory) => {
+  // 60 rewritten lines make a diff of 120 rows: the removed lines first, then the added ones.
+  const rewrite = (word: string): Record<number, string> =>
+    Object.fromEntries(Array.from({ length: 60 }, (_, index) => [index + 1, `${word} ${index + 1}`]));
+  await createRepository(directory, { "long.txt": numbered(80) });
+  await writeFile(join(directory, "long.txt"), numbered(80, rewrite("edited")));
+  await using setup = await createTestRenderer({ width: 100, height: 14 });
+  await using app = new ScouterApp(setup.renderer, FAST_POLL);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "line 1");
+  setup.mockInput.pressTab();
+  await setup.renderOnce();
+  scroller(setup).scrollTo(70);
+  await setup.renderOnce();
+  const before = scroller(setup).scrollTop;
+  expect(before).toBeGreaterThan(60);
+  expect(setup.captureCharFrame()).toContain("edited");
+
+  // Several idle polls pass with nothing to redraw.
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await setup.renderOnce();
+  expect(scroller(setup).scrollTop).toBe(before);
+
+  // The same file rewritten again: the new text appears where the reader already is.
+  await writeFile(join(directory, "long.txt"), numbered(80, rewrite("revised")));
+  await waitForText(setup, "revised");
+  expect(setup.captureCharFrame()).not.toContain("edited");
+  expect(scroller(setup).scrollTop).toBe(before);
+  expect(footer(setup).status).toContain("DIFF");
+}));
+
+test("stops reading git once the diff screen is closed", () => withDirectory(async (directory) => {
+  await createRepository(directory, { "a.txt": "one\n" });
+  await writeFile(join(directory, "a.txt"), "two\n");
+  await using setup = await createTestRenderer({ width: 100, height: 14 });
+  await using app = new ScouterApp(setup.renderer, FAST_POLL);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "1 file");
+  setup.mockInput.pressKey("d");
+  await setup.renderOnce();
+  expect(footer(setup).status).toContain("FILES");
+
+  git(directory, "commit", "--all", "--quiet", "-m", "while closed");
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  await setup.renderOnce();
+  // Nothing refreshed behind the file view; reopening reads the repository fresh.
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "No changes");
+}));
+
+test("moving through the list or clicking a file never pulses the panes' opacity", () => withDirectory(async (directory) => {
+  await createRepository(directory, { "a.txt": "a\n", "b.bin": "text\n", "c.txt": "c\n" });
+  await writeFile(join(directory, "a.txt"), "a changed\n");
+  await writeFile(join(directory, "b.bin"), Buffer.from([0, 1, 2]));
+  await writeFile(join(directory, "c.txt"), "c changed\n");
+  await using setup = await createTestRenderer({ width: 90, height: 14 });
+  await using app = new ScouterApp(setup.renderer);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "a changed");
+
+  const writes: string[] = [];
+  for (const id of ["browser-panel", "viewer-panel"]) {
+    const panel = setup.renderer.root.findDescendantById(id);
+    if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
+    let opacity = panel.opacity;
+    Object.defineProperty(panel, "opacity", {
+      configurable: true, get: () => opacity,
+      set: (value: number) => { if (value !== opacity) writes.push(`${id} -> ${value}`); opacity = value; },
+    });
+  }
+
+  // A file with no text diff in between must not make the reader brighten and dim again.
+  setup.mockInput.pressKey("j");
+  await waitForText(setup, "Binary file");
+  setup.mockInput.pressKey("j");
+  await waitForText(setup, "c changed");
+  expect(writes).toEqual([]);
+
+  // Clicking from the reader: the list must not take focus and give it straight back.
+  setup.mockInput.pressTab();
+  await setup.renderOnce();
+  writes.length = 0;
+  const lines = setup.captureCharFrame().split("\n");
+  const y = lines.findIndex((line) => line.slice(0, 40).includes("a.txt"));
+  await setup.mockMouse.click(lines[y]!.indexOf("a.txt") + 1, y);
+  await waitForText(setup, "a changed");
+  await setup.renderOnce();
+  expect(writes).toEqual([]);
+  expect(setup.renderer.currentFocusedRenderable?.id).toBe("diff-scroller");
 }));

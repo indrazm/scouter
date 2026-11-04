@@ -27,7 +27,10 @@ export interface Change {
 
 export interface Repository {
   root: string;
-  /** What the working tree is compared against: `HEAD`, or the empty tree in a repository with no commits. */
+  /**
+   * What the working tree is compared against: `HEAD`, or the empty tree in a repository with no commits.
+   * Re-resolved on every `listChanges`, because the first commit turns the latter into the former.
+   */
   base: string;
   /**
    * A private copy of the repository's index. `git diff` refreshes the index it reads and rewrites it even when
@@ -36,6 +39,8 @@ export interface Repository {
   indexFile: string;
   /** The real index, copied into `indexFile` before every refresh. */
   gitIndex: string;
+  /** Tail of the git calls in flight: they share `indexFile`, so they take turns. */
+  queue: Promise<unknown>;
 }
 
 export interface ChangeSet {
@@ -126,12 +131,23 @@ export async function openRepository(directory: string): Promise<Repository> {
     throw error;
   }
   if (!root) throw new GitError("Not a git repository.");
-  const head = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => true, () => false);
-  const base = head ? "HEAD" : (await run(root, ["hash-object", "-t", "tree", "/dev/null"])).text.trim();
+  const base = await resolveBase(root);
   const gitIndex = (await run(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"])).text.trim();
   const copyDirectory = await mkdtemp(join(tmpdir(), "scouter-index-"));
   openCopies.add(copyDirectory);
-  return { root, base, indexFile: join(copyDirectory, "index"), gitIndex };
+  return { root, base, indexFile: join(copyDirectory, "index"), gitIndex, queue: Promise.resolve() };
+}
+
+async function resolveBase(root: string): Promise<string> {
+  const head = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => true, () => false);
+  return head ? "HEAD" : (await run(root, ["hash-object", "-t", "tree", "/dev/null"])).text.trim();
+}
+
+/** Runs git calls that use the private index one at a time, so a copy is never replaced while git reads it. */
+function exclusive<T>(repository: Repository, task: () => Promise<T>): Promise<T> {
+  const result = repository.queue.then(task, task);
+  repository.queue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 /** Removes the private index copy. Safe to call more than once. */
@@ -146,7 +162,12 @@ async function syncIndex(repository: Repository): Promise<void> {
 }
 
 /** Everything that differs from `base`: staged and unstaged edits together, plus files git does not track yet. */
-export async function listChanges(repository: Repository): Promise<ChangeSet> {
+export function listChanges(repository: Repository): Promise<ChangeSet> {
+  return exclusive(repository, () => readChanges(repository));
+}
+
+async function readChanges(repository: Repository): Promise<ChangeSet> {
+  repository.base = await resolveBase(repository.root);
   await syncIndex(repository);
   const indexFile = repository.indexFile;
   const [statuses, numbers, untracked] = await Promise.all([
@@ -179,9 +200,9 @@ export async function readPatch(repository: Repository, change: Change): Promise
 
 async function trackedPatch(repository: Repository, change: Change): Promise<string | Patch> {
   const paths = change.oldPath ? [change.oldPath, change.path] : [change.path];
-  const output = await run(repository.root, ["diff", repository.base, ...diffOptions, "--", ...paths], {
+  const output = await exclusive(repository, () => run(repository.root, ["diff", repository.base, ...diffOptions, "--", ...paths], {
     limit: PATCH_LIMIT_BYTES, indexFile: repository.indexFile,
-  });
+  }));
   if (output.truncated) return { kind: "notice", message: "This diff is too large to display (limit: 1 MiB)." };
   return output.text;
 }

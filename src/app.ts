@@ -25,6 +25,8 @@ const SIDEBAR_TINT = 0.025;
 /** How visible the pane without focus stays: 1 is untouched, 0 is invisible. */
 const INACTIVE_OPACITY = 0.5;
 const transparent = RGBA.fromValues(0, 0, 0, 0);
+/** How often the diff screen re-reads git while it is open. */
+const DIFF_POLL_MS = 2000;
 const MIN_SIDEBAR_COLUMNS = 24;
 const MIN_READER_COLUMNS = 28;
 
@@ -60,7 +62,7 @@ export class ScouterApp {
   private preferredSidebarWidth?: number;
   private sidebarDrag?: { startX: number; startWidth: number };
 
-  constructor(private readonly renderer: CliRenderer) {
+  constructor(private readonly renderer: CliRenderer, options: { diffPollMs?: number } = {}) {
     const layout = new BoxRenderable(renderer, { width: "100%", height: "100%", flexDirection: "column" });
     const panes = new BoxRenderable(renderer, { width: "100%", flexDirection: "row", flexGrow: 1, flexBasis: 0, minHeight: 0 });
     this.browserPanel = new BoxRenderable(renderer, {
@@ -102,7 +104,9 @@ export class ScouterApp {
       syntax: this.codeView.syntax,
       onChange: this.onDiffChange,
       onActivate: this.onDiffActivate,
+      onFocusList: this.onDiffFocusList,
       onLayout: () => this.updatePosition(),
+      pollMs: options.diffPollMs ?? DIFF_POLL_MS,
     });
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
@@ -237,6 +241,11 @@ export class ScouterApp {
     this.updateFocus();
   };
 
+  private readonly onDiffFocusList = (): void => {
+    this.diffScreen.list.focus();
+    this.updateFocus();
+  };
+
   private rootPath(): string {
     return this.tree.rows()[0]?.path ?? process.cwd();
   }
@@ -277,6 +286,7 @@ export class ScouterApp {
     this.updateChrome();
     this.diffScreen.list.focus();
     this.updateFocus();
+    this.diffScreen.watch();
   }
 
   private leaveDiff(): void {
@@ -360,8 +370,10 @@ export class ScouterApp {
   private readonly updateFocus = (): void => {
     this.viewerHeader.setFocused(this.reader.focused);
     this.browserPanel.opacity = this.list.focused ? 1 : INACTIVE_OPACITY;
-    // The welcome screen and messages are not panes to read, so they keep full brightness.
-    this.viewerPanel.opacity = this.reader.focused || !this.readerReady ? 1 : INACTIVE_OPACITY;
+    // The welcome screen and the empty "No changes" message are not panes to read, so they keep full brightness.
+    // Whether the highlighted file has a text diff must not matter: moving down the list would flicker the reader.
+    const dimmable = this.mode === "diff" ? this.diffScreen.hasChanges : this.hasDocument;
+    this.viewerPanel.opacity = this.reader.focused || !dimmable ? 1 : INACTIVE_OPACITY;
     this.footer.setFocus(this.reader.focused ? "reader" : "files");
   };
 

@@ -13,7 +13,7 @@ bun run start ./src
 bun run start ./README.md
 ```
 
-With no path, Scouter opens the current directory. Hidden files are included; directories appear first. Folders expand and collapse in place, keeping the tree rooted in the opened directory. Panes have no frames or divider lines. The sidebar has no header; its tree starts at the top. The reader header shows its title bold and bright when active (muted otherwise), plus a quiet `read-only` tag and a `wrap` chip while word wrap is on. The footer's `FILES` / `READER` pill always shows which pane is active. The pane without focus is also dimmed to 50% (`INACTIVE_OPACITY` in `src/app.ts`); the welcome screen is never dimmed.
+With no path, Scouter opens the current directory. Dotfiles are shown, except version-control folders (`.git`, `.hg`, `.svn`) and operating-system clutter (`.DS_Store`, `.AppleDouble`, `Thumbs.db`, `desktop.ini`); directories appear first. Folders expand and collapse in place, keeping the tree rooted in the opened directory. Panes have no frames or divider lines. The sidebar has no header; its tree starts at the top. The reader header shows its title bold and bright when active (muted otherwise), plus a quiet `read-only` tag and a `wrap` chip while word wrap is on. The footer's `FILES` / `READER` pill always shows which pane is active. The pane without focus is also dimmed to 50% (`INACTIVE_OPACITY` in `src/app.ts`); the welcome screen is never dimmed.
 
 The footer has two rows. The status bar shows the active pane (`FILES` or `READER`), the path of the open file, and on the right its line count, language, encoding and scroll position (`Top`, `42%`, `Bot`, or `All`). On narrow terminals the right-hand facts drop away first, then the path is shortened from the left. Below it, key hints change with the active pane and drop from the end when they do not fit.
 
@@ -46,6 +46,8 @@ Press `d` to see what has changed in the git repository containing the directory
 
 It compares the working tree with `HEAD`: staged and unstaged edits together, plus files git does not track yet (shown as all additions). In a repository with no commits everything staged counts as added.
 
+The screen keeps itself current while it is open: about every two seconds (less often in a slow repository) it re-reads git, so a commit, `git add`, or an edit in your editor shows up on its own. The highlight stays on the same file, or near its place if that file was committed, and the diff you are reading is redrawn in place without losing your scroll position. Nothing is redrawn when nothing changed, and it stops entirely when you leave the screen.
+
 | Key | List | Diff |
 | --- | --- | --- |
 | `j` / `k`, Down / Up | Select next / previous file | Scroll one line |
@@ -53,7 +55,7 @@ It compares the working tree with `HEAD`: staged and unstaged edits together, pl
 | `n` / `p` (or `]` / `[`) | Next / previous hunk | Next / previous hunk |
 | `s` | Split / unified view | Split / unified view |
 | `w` | Wrap long lines | Wrap long lines |
-| `r` | Reload from git | Reload from git |
+| `r` | Reload now | Reload now |
 | Tab, Escape | Switch panes / back to the list | Switch panes / back to the list |
 | `d` | Back to the file view | Back to the file view |
 

@@ -154,3 +154,16 @@ test("works from a subdirectory and reports paths relative to the repository roo
   const repo = await openRepository(join(directory, "pkg"));
   expect((await listChanges(repo)).changes.map((change) => change.path)).toEqual(["link", "pkg/inner.txt"]);
 }));
+
+test("moves from the empty tree to HEAD once the first commit exists", () => withDirectory(async (directory) => {
+  await repository(directory);
+  await writeFile(join(directory, "first.txt"), "hello\n");
+  git(directory, "add", "first.txt");
+  const repo = await openRepository(directory);
+  expect((await listChanges(repo)).changes.map((change) => change.path)).toEqual(["first.txt"]);
+  expect(repo.base).not.toBe("HEAD");
+
+  git(directory, "commit", "--quiet", "-m", "first");
+  expect(await listChanges(repo)).toEqual({ changes: [], truncated: false });
+  expect(repo.base).toBe("HEAD");
+}));
