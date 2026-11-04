@@ -45,6 +45,9 @@ async function upstream(directory: string, tag: string): Promise<string> {
       await copyFile(join(root, file), join(target, file));
     }),
   );
+  // The stand-in starts at 0.1.0 whatever version this checkout is, so the upgrade below always has somewhere to go.
+  const manifest = join(target, "package.json");
+  await writeFile(manifest, (await readFile(manifest, "utf8")).replace(/"version": "[^"]+"/, '"version": "0.1.0"'));
   git(target, "init", "--quiet", "--initial-branch=main");
   git(target, "add", "--all");
   git(target, "commit", "--quiet", "-m", "release");
