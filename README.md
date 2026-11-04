@@ -2,6 +2,37 @@
 
 A small, read-only terminal file viewer with a built-in git diff screen. Inspired by Neovim's navigation, without editing, modes, plugins, or configuration.
 
+## Install
+
+Requires [Bun](https://bun.sh) 1.4.4 or newer and git. Then:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/indrazm/scouter/main/install.sh | bash
+```
+
+and, in any folder:
+
+```sh
+scouter .             # or: scouter ./src, scouter README.md
+scouter --version
+scouter --upgrade     # update to the newest release
+```
+
+The installer downloads the newest release tag (`v0.1.0` is the first; before any release exists it uses `main`) into `~/.scouter`, installs its dependencies with the lockfile and without install scripts, and puts a `scouter` command in `~/.local/bin`. It does not edit your shell configuration; if `~/.local/bin` is not on your `PATH` it prints the line to add. `scouter --upgrade` runs the installer again and reports `Upgraded: 0.1.0 → 0.1.1` or `Already up to date`.
+
+To remove it: `~/.scouter/install.sh --uninstall`. It only deletes what it created, and never overwrites a different `scouter` command or an existing folder it did not make.
+
+| Variable          | Default               | Meaning                                                   |
+| ----------------- | --------------------- | --------------------------------------------------------- |
+| `SCOUTER_REF`     | newest release tag    | Release tag or branch to install, e.g. `v0.1.0` or `main` |
+| `SCOUTER_HOME`    | `~/.scouter`          | Where the program is kept                                 |
+| `SCOUTER_BIN_DIR` | `~/.local/bin`        | Where the `scouter` command goes                          |
+| `SCOUTER_REPO`    | the GitHub repository | Git URL to install from                                   |
+
+Running `./install.sh` from a checkout of this repository links the command to that checkout instead of downloading a copy; update that one with `git pull`.
+
+The `scouter` command starts Bun with its own empty config and without loading `.env`. Otherwise Bun would read `bunfig.toml` (which can run a `preload` script) and `.env` from the folder you are viewing, and a viewer must not run code from what it views.
+
 ## Run
 
 Requires Bun 1.4.4 or newer and an interactive terminal.

@@ -1,10 +1,13 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describeError } from "./files";
+import { version } from "../package.json";
 
 const help = `scouter — a minimal read-only terminal file viewer
 
-Usage: bun run start [file-or-directory]
+Usage: scouter [file-or-directory]
+       scouter --version
+       scouter --upgrade     update to the newest release (installed command only)
 
 Defaults to the current directory. UTF-8 text files up to 1 MiB.
 
@@ -32,6 +35,15 @@ async function main(): Promise<void> {
   const args = Bun.argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) {
     console.log(help);
+    return;
+  }
+  if (args.includes("--upgrade")) {
+    throw new Error(
+      "--upgrade is for the installed command. Install Scouter with install.sh, then run: scouter --upgrade",
+    );
+  }
+  if (args.includes("--version") || args.includes("-v")) {
+    console.log(`scouter ${version}`);
     return;
   }
   if (args.length > 1) throw new Error("Expected one file or directory. Use --help for usage.");
