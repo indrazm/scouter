@@ -13,8 +13,17 @@ import { ChangeList, countSegments, statusLetters } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError, displayLabel } from "./files";
 import {
-  GitError, closeRepository, listChanges, openRepository, readAllPatches, readPatch,
-  type Change, type ChangeSet, type FilePatch, type Patch, type Repository,
+  GitError,
+  closeRepository,
+  listChanges,
+  openRepository,
+  readAllPatches,
+  readPatch,
+  type Change,
+  type ChangeSet,
+  type FilePatch,
+  type Patch,
+  type Repository,
 } from "./git";
 import { styled } from "./styled";
 import { theme } from "./theme";
@@ -64,20 +73,27 @@ interface Block {
 
 function signature(result: ChangeSet): string {
   const rows = result.changes.map((change) =>
-    [change.path, change.oldPath, change.kind, change.added, change.removed, change.binary].join("\0"));
+    [change.path, change.oldPath, change.kind, change.added, change.removed, change.binary].join("\0"),
+  );
   return `${result.truncated}\n${rows.join("\n")}`;
 }
 
 /** Identity of what is on screen, so an unchanged re-read redraws nothing and keeps the scroll position. */
 function contentKey(files: FilePatch[]): string {
-  return files.map(({ change, patch }) => `${change.path}\0${patch.kind === "text" ? patch.text : patch.message}`).join("\u0001");
+  return files
+    .map(({ change, patch }) => `${change.path}\0${patch.kind === "text" ? patch.text : patch.message}`)
+    .join("\u0001");
 }
 
 /** Added and removed lines are tinted lightly so the diff reads on any terminal background. */
 const diffColors = {
-  addedBg: "#12281c", removedBg: "#2b1518", contextBg: RGBA.fromValues(0, 0, 0, 0),
-  addedLineNumberBg: "#173a27", removedLineNumberBg: "#3b1b20",
-  addedSignColor: theme.added, removedSignColor: theme.removed,
+  addedBg: "#12281c",
+  removedBg: "#2b1518",
+  contextBg: RGBA.fromValues(0, 0, 0, 0),
+  addedLineNumberBg: "#173a27",
+  removedLineNumberBg: "#3b1b20",
+  addedSignColor: theme.added,
+  removedSignColor: theme.removed,
 } as const;
 
 const FALLBACK_BAND = "#131519";
@@ -124,30 +140,58 @@ export class DiffScreen {
   private watching = false;
   private timer?: ReturnType<typeof setTimeout>;
 
-  constructor(context: RenderContext, private readonly options: DiffScreenOptions) {
+  constructor(
+    context: RenderContext,
+    private readonly options: DiffScreenOptions,
+  ) {
     this.list = new ChangeList(context, {
       onSelect: (change) => void this.select(change),
       onActivate: () => this.openSelected(),
     });
     this.body = new BoxRenderable(context, {
-      id: "diff-body", flexGrow: 1, flexBasis: 0, minHeight: 0, minWidth: 0, flexDirection: "column",
+      id: "diff-body",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      minWidth: 0,
+      flexDirection: "column",
     });
     this.scroller = new ScrollBoxRenderable(context, {
-      id: "diff-scroller", width: "100%", flexGrow: 1, flexBasis: 0, minHeight: 0, scrollX: true, scrollY: true,
+      id: "diff-scroller",
+      width: "100%",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      scrollX: true,
+      scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => this.layoutChanged() },
     });
-    this.stack = new BoxRenderable(context, { id: "diff-stack", flexDirection: "column", flexShrink: 0, minWidth: "100%" });
+    this.stack = new BoxRenderable(context, {
+      id: "diff-stack",
+      flexDirection: "column",
+      flexShrink: 0,
+      minWidth: "100%",
+    });
     this.scroller.add(this.stack);
     this.message = new BoxRenderable(context, {
-      id: "diff-message", flexGrow: 1, flexBasis: 0, minHeight: 0, flexDirection: "column",
-      alignItems: "center", justifyContent: "center",
+      id: "diff-message",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
     });
     this.messageTitle = new TextRenderable(context, { height: 1, flexShrink: 0, wrapMode: "none", selectable: false });
     this.messageDetail = new TextRenderable(context, {
-      height: 1, flexShrink: 0, marginTop: 1, wrapMode: "none", selectable: false,
+      height: 1,
+      flexShrink: 0,
+      marginTop: 1,
+      wrapMode: "none",
+      selectable: false,
     });
     this.message.add(this.messageTitle);
     this.message.add(this.messageDetail);
@@ -458,40 +502,77 @@ export class DiffScreen {
   private createBlock({ change, patch }: FilePatch, index: number): Block {
     const context = this.context;
     const root = new BoxRenderable(context, {
-      flexDirection: "column", flexShrink: 0, minWidth: "100%", ...(index ? { marginTop: 1 } : {}),
+      flexDirection: "column",
+      flexShrink: 0,
+      minWidth: "100%",
+      ...(index ? { marginTop: 1 } : {}),
     });
     const header = new BoxRenderable(context, {
-      height: 1, width: "100%", flexShrink: 0, flexDirection: "row", paddingLeft: 1, paddingRight: 1, backgroundColor: this.band,
+      height: 1,
+      width: "100%",
+      flexShrink: 0,
+      flexDirection: "row",
+      paddingLeft: 1,
+      paddingRight: 1,
+      backgroundColor: this.band,
     });
     const { letter, color } = statusLetters[change.kind];
     const folder = posix.dirname(change.path);
-    header.add(new TextRenderable(context, {
-      height: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, wrapMode: "none", selectable: false,
-      content: styled([
-        { text: `${letter} `, fg: color, bold: true },
-        { text: displayLabel(posix.basename(change.path)), fg: theme.text, bold: true },
-        ...(change.oldPath ? [{ text: `  ← ${displayLabel(change.oldPath)}`, fg: theme.dim }] : []),
-        ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
-      ]),
-    }));
-    header.add(new TextRenderable(context, {
-      height: 1, flexShrink: 0, marginLeft: 1, wrapMode: "none", selectable: false, content: styled(countSegments(change)),
-    }));
+    header.add(
+      new TextRenderable(context, {
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        wrapMode: "none",
+        selectable: false,
+        content: styled([
+          { text: `${letter} `, fg: color, bold: true },
+          { text: displayLabel(posix.basename(change.path)), fg: theme.text, bold: true },
+          ...(change.oldPath ? [{ text: `  ← ${displayLabel(change.oldPath)}`, fg: theme.dim }] : []),
+          ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
+        ]),
+      }),
+    );
+    header.add(
+      new TextRenderable(context, {
+        height: 1,
+        flexShrink: 0,
+        marginLeft: 1,
+        wrapMode: "none",
+        selectable: false,
+        content: styled(countSegments(change)),
+      }),
+    );
     root.add(header);
     let diff: DiffRenderable | undefined;
     if (patch.kind === "text") {
       diff = new DiffRenderable(context, {
-        diff: patch.text, view: this.view, wrapMode: "none", flexShrink: 0, conceal: false, fg: theme.text,
-        filetype: languageFor(change.path), syntaxStyle: this.options.syntax.style,
-        treeSitterClient: this.options.syntax.client, lineNumberFg: theme.muted, ...diffColors,
+        diff: patch.text,
+        view: this.view,
+        wrapMode: "none",
+        flexShrink: 0,
+        conceal: false,
+        fg: theme.text,
+        filetype: languageFor(change.path),
+        syntaxStyle: this.options.syntax.style,
+        treeSitterClient: this.options.syntax.client,
+        lineNumberFg: theme.muted,
+        ...diffColors,
         onSizeChange: () => this.layoutChanged(),
       });
       root.add(diff);
     } else {
-      root.add(new TextRenderable(context, {
-        height: 1, paddingLeft: 2, flexShrink: 0, wrapMode: "none", selectable: false,
-        content: styled([{ text: patch.message, fg: theme.muted }]),
-      }));
+      root.add(
+        new TextRenderable(context, {
+          height: 1,
+          paddingLeft: 2,
+          flexShrink: 0,
+          wrapMode: "none",
+          selectable: false,
+          content: styled([{ text: patch.message, fg: theme.muted }]),
+        }),
+      );
     }
     return { change, patch, root, header, ...(diff ? { diff } : {}) };
   }
@@ -535,7 +616,8 @@ export class DiffScreen {
     for (const block of this.blocks) {
       if (!block.diff) continue;
       const top = block.diff.y - this.stack.y;
-      for (const offset of block.diff.getHunkRowOffsets()) rows.push(Math.max(0, top + offset - (offset === 0 ? 1 : 0)));
+      for (const offset of block.diff.getHunkRowOffsets())
+        rows.push(Math.max(0, top + offset - (offset === 0 ? 1 : 0)));
     }
     return rows;
   }

@@ -62,22 +62,46 @@ export class ScouterApp {
   private preferredSidebarWidth?: number;
   private sidebarDrag?: { startX: number; startWidth: number };
 
-  constructor(private readonly renderer: CliRenderer, options: { diffPollMs?: number } = {}) {
+  constructor(
+    private readonly renderer: CliRenderer,
+    options: { diffPollMs?: number } = {},
+  ) {
     const layout = new BoxRenderable(renderer, { width: "100%", height: "100%", flexDirection: "column" });
-    const panes = new BoxRenderable(renderer, { width: "100%", flexDirection: "row", flexGrow: 1, flexBasis: 0, minHeight: 0 });
+    const panes = new BoxRenderable(renderer, {
+      width: "100%",
+      flexDirection: "row",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+    });
     this.browserPanel = new BoxRenderable(renderer, {
-      id: "browser-panel", flexShrink: 0, flexDirection: "column", paddingLeft: 1, paddingRight: 1,
+      id: "browser-panel",
+      flexShrink: 0,
+      flexDirection: "column",
+      paddingLeft: 1,
+      paddingRight: 1,
     });
     this.browser = new FileExplorer(renderer, { onActivate: this.onExplorerActivate });
     this.viewerPanel = new BoxRenderable(renderer, {
-      id: "viewer-panel", flexGrow: 1, flexBasis: 0, minWidth: 0, flexDirection: "column", paddingLeft: 1,
+      id: "viewer-panel",
+      flexGrow: 1,
+      flexBasis: 0,
+      minWidth: 0,
+      flexDirection: "column",
+      paddingLeft: 1,
     });
     this.viewerHeader = new PaneHeader(renderer, "viewer-header");
     this.viewerHeader.setTitle("Reader");
     this.updateViewerBadges();
     this.sidebarResizer = new BoxRenderable(renderer, {
-      id: "sidebar-resizer", width: 1, height: "100%", flexShrink: 0,
-      onMouseOver: () => { this.sidebarResizer.backgroundColor = theme.hover; this.setResizePointer("col-resize"); },
+      id: "sidebar-resizer",
+      width: 1,
+      height: "100%",
+      flexShrink: 0,
+      onMouseOver: () => {
+        this.sidebarResizer.backgroundColor = theme.hover;
+        this.setResizePointer("col-resize");
+      },
       onMouseOut: () => {
         if (this.sidebarDrag) return;
         this.sidebarResizer.backgroundColor = transparent;
@@ -89,7 +113,13 @@ export class ScouterApp {
       onMouseUp: this.finishSidebarDrag,
     });
     this.viewer = new ScrollBoxRenderable(renderer, {
-      id: "viewer", width: "100%", flexGrow: 1, flexBasis: 0, minHeight: 0, scrollX: true, scrollY: true,
+      id: "viewer",
+      width: "100%",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      scrollX: true,
+      scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
       horizontalScrollbarOptions: { visible: false },
@@ -226,8 +256,11 @@ export class ScouterApp {
     this.viewerHeader.setTitle(state.selected ? displayLabel(basename(state.selected.path)) : "Changes");
     this.updateViewerBadges();
     this.footer.setDiff({
-      location: state.selected?.path ?? state.repository, files: state.files, truncated: state.truncated,
-      scope: state.scope, ...state.patch,
+      location: state.selected?.path ?? state.repository,
+      files: state.files,
+      truncated: state.truncated,
+      scope: state.scope,
+      ...state.patch,
     });
   }
 
@@ -269,7 +302,8 @@ export class ScouterApp {
         then();
       }
     } catch (error) {
-      if (!this.renderer.isDestroyed) this.footer.setMessage(error instanceof GitError ? error.message : describeError(error), true);
+      if (!this.renderer.isDestroyed)
+        this.footer.setMessage(error instanceof GitError ? error.message : describeError(error), true);
     } finally {
       this.operation = "idle";
     }
@@ -327,7 +361,9 @@ export class ScouterApp {
     if (!this.readerReady) return;
     const range = this.reader.scrollHeight - this.reader.viewport.height;
     const top = this.reader.scrollTop;
-    this.footer.setPosition(range <= 0 ? "All" : top <= 0 ? "Top" : top >= range ? "Bot" : `${Math.round((top / range) * 100)}%`);
+    this.footer.setPosition(
+      range <= 0 ? "All" : top <= 0 ? "Top" : top >= range ? "Bot" : `${Math.round((top / range) * 100)}%`,
+    );
   }
 
   private toggleWrap(): void {
@@ -528,8 +564,14 @@ export class ScouterApp {
       return;
     }
     const movement: Record<string, { x: number; y: number }> = {
-      h: { x: -4, y: 0 }, left: { x: -4, y: 0 }, l: { x: 4, y: 0 }, right: { x: 4, y: 0 },
-      j: { x: 0, y: 1 }, down: { x: 0, y: 1 }, k: { x: 0, y: -1 }, up: { x: 0, y: -1 },
+      h: { x: -4, y: 0 },
+      left: { x: -4, y: 0 },
+      l: { x: 4, y: 0 },
+      right: { x: 4, y: 0 },
+      j: { x: 0, y: 1 },
+      down: { x: 0, y: 1 },
+      k: { x: 0, y: -1 },
+      up: { x: 0, y: -1 },
     };
     const delta = movement[key.name];
     if (delta) {

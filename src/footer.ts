@@ -48,13 +48,53 @@ function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: Di
   if (mode === "diff") {
     const other: Hint = ["a", scope === "all" ? "one file" : "all files"];
     return focus === "files"
-      ? [["j k", "move"], ["Enter", "view"], ["Tab", "diff"], ["s", "split"], other, ["r", "refresh"], ["d", "back"], ["^←→", "resize"], ["q", "quit"]]
-      : [["j k", "scroll"], ["n p", "hunk"], ["s", "split"], other, ["Tab", "files"], ["w", "wrap"], ...pan, ["g G", "top/bottom"],
-        ["^d ^u", "page"], ["r", "refresh"], ["d", "back"], ["q", "quit"]];
+      ? [
+          ["j k", "move"],
+          ["Enter", "view"],
+          ["Tab", "diff"],
+          ["s", "split"],
+          other,
+          ["r", "refresh"],
+          ["d", "back"],
+          ["^←→", "resize"],
+          ["q", "quit"],
+        ]
+      : [
+          ["j k", "scroll"],
+          ["n p", "hunk"],
+          ["s", "split"],
+          other,
+          ["Tab", "files"],
+          ["w", "wrap"],
+          ...pan,
+          ["g G", "top/bottom"],
+          ["^d ^u", "page"],
+          ["r", "refresh"],
+          ["d", "back"],
+          ["q", "quit"],
+        ];
   }
   return focus === "files"
-    ? [["j k", "move"], ["Enter", "open"], ["h", "back"], ["Tab", "reader"], ["d", "changes"], ["w", "wrap"], ["^←→", "resize"], ["q", "quit"]]
-    : [["j k", "scroll"], ...pan, ["g G", "top/bottom"], ["^d ^u", "page"], ["Tab", "files"], ["d", "changes"], ["w", "wrap"], ["q", "quit"]];
+    ? [
+        ["j k", "move"],
+        ["Enter", "open"],
+        ["h", "back"],
+        ["Tab", "reader"],
+        ["d", "changes"],
+        ["w", "wrap"],
+        ["^←→", "resize"],
+        ["q", "quit"],
+      ]
+    : [
+        ["j k", "scroll"],
+        ...pan,
+        ["g G", "top/bottom"],
+        ["^d ^u", "page"],
+        ["Tab", "files"],
+        ["d", "changes"],
+        ["w", "wrap"],
+        ["q", "quit"],
+      ];
 }
 
 function tildify(path: string): string {
@@ -83,16 +123,38 @@ export class Footer {
   private wrap = false;
 
   constructor(private readonly renderer: CliRenderer) {
-    this.root = new BoxRenderable(renderer, { id: "footer", width: "100%", height: 2, flexDirection: "column", flexShrink: 0 });
+    this.root = new BoxRenderable(renderer, {
+      id: "footer",
+      width: "100%",
+      height: 2,
+      flexDirection: "column",
+      flexShrink: 0,
+    });
     this.band = new BoxRenderable(renderer, {
-      id: "status", width: "100%", height: 1, flexDirection: "row", flexShrink: 0, paddingLeft: 1, paddingRight: 1,
+      id: "status",
+      width: "100%",
+      height: 1,
+      flexDirection: "row",
+      flexShrink: 0,
+      paddingLeft: 1,
+      paddingRight: 1,
     });
     this.left = new TextRenderable(renderer, {
-      height: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, wrapMode: "none", selectable: false,
+      height: 1,
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      wrapMode: "none",
+      selectable: false,
     });
     this.right = new TextRenderable(renderer, { height: 1, flexShrink: 0, wrapMode: "none", selectable: false });
     this.hintRow = new TextRenderable(renderer, {
-      id: "hints", height: 1, width: "100%", flexShrink: 0, wrapMode: "none", selectable: false,
+      id: "hints",
+      height: 1,
+      width: "100%",
+      flexShrink: 0,
+      wrapMode: "none",
+      selectable: false,
     });
     this.band.add(this.left);
     this.band.add(this.right);
@@ -166,7 +228,10 @@ export class Footer {
     if (this.renderer.isDestroyed) return;
     const inner = Math.max(0, this.renderer.width - 2);
     const pill: Segment = {
-      text: ` ${pillLabels[this.mode][this.focus]} `, fg: theme.accentInk, bg: theme.accent, bold: true,
+      text: ` ${pillLabels[this.mode][this.focus]} `,
+      fg: theme.accentInk,
+      bg: theme.accent,
+      bold: true,
     };
     const facts = this.fitFacts(inner - segmentsWidth([pill]) - 1 - MIN_LOCATION_COLUMNS);
     const factsWidth = segmentsWidth(facts);
@@ -181,9 +246,12 @@ export class Footer {
     if (this.message) {
       return [{ text: fitStart(this.message.text, columns), fg: this.message.error ? theme.error : theme.accentSoft }];
     }
-    const shown = fitEnd(this.mode === "diff" ? this.diff?.location ?? "" : this.location, columns);
+    const shown = fitEnd(this.mode === "diff" ? (this.diff?.location ?? "") : this.location, columns);
     const cut = shown.lastIndexOf("/", shown.length - 2) + 1;
-    return [{ text: shown.slice(0, cut), fg: theme.dim }, { text: shown.slice(cut), fg: theme.text }];
+    return [
+      { text: shown.slice(0, cut), fg: theme.dim },
+      { text: shown.slice(cut), fg: theme.text },
+    ];
   }
 
   private candidateFacts(): Fact[] {
@@ -194,12 +262,19 @@ export class Footer {
         const files = `${diff.files}${diff.truncated ? "+" : ""} ${diff.files === 1 && !diff.truncated ? "file" : "files"}`;
         facts.push({ key: "files", segments: [{ text: files, fg: theme.muted }] });
         if (diff.hunks !== undefined) {
-          facts.push({ key: "hunks", segments: [{ text: `${diff.hunks} ${diff.hunks === 1 ? "hunk" : "hunks"}`, fg: theme.muted }] });
+          facts.push({
+            key: "hunks",
+            segments: [{ text: `${diff.hunks} ${diff.hunks === 1 ? "hunk" : "hunks"}`, fg: theme.muted }],
+          });
         }
         if (diff.added !== undefined && diff.removed !== undefined) {
           facts.push({
             key: "counts",
-            segments: [{ text: `+${diff.added}`, fg: theme.added }, { text: " " }, { text: `−${diff.removed}`, fg: theme.removed }],
+            segments: [
+              { text: `+${diff.added}`, fg: theme.added },
+              { text: " " },
+              { text: `−${diff.removed}`, fg: theme.removed },
+            ],
           });
         }
       }
@@ -216,7 +291,8 @@ export class Footer {
   /** Right-hand facts in display order, dropped lowest-priority first until they fit `columns`. */
   private fitFacts(columns: number): Segment[] {
     const facts = this.candidateFacts();
-    const width = (): number => facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
+    const width = (): number =>
+      facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
     for (const key of ["encoding", "language", "files", "lines", "hunks", "counts", "position"]) {
       if (width() <= columns) break;
       const index = facts.findIndex((fact) => fact.key === key);
@@ -229,7 +305,10 @@ export class Footer {
   private fitHints(columns: number): Segment[] {
     const segments: Segment[] = [];
     for (const [key, action] of hintsFor(this.mode, this.focus, this.wrap, this.diff?.scope ?? "all")) {
-      const hint: Segment[] = [{ text: key, fg: theme.accentSoft }, { text: ` ${action}`, fg: theme.dim }];
+      const hint: Segment[] = [
+        { text: key, fg: theme.accentSoft },
+        { text: ` ${action}`, fg: theme.dim },
+      ];
       const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
       if (segmentsWidth(next) > columns) break;
       segments.splice(0, segments.length, ...next);

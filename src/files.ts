@@ -17,9 +17,13 @@ export interface Document {
 }
 
 export function displayText(text: string): string {
-  return text
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "�");
+  return (
+    text
+      .replace(/\r\n?/g, "\n")
+      // Matching control characters is the point of this expression.
+      // oxlint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g, "�")
+  );
 }
 
 export function describeError(error: unknown): string {
@@ -37,11 +41,13 @@ export function displayLabel(text: string): string {
 const NOISE = new Set([".git", ".hg", ".svn", ".DS_Store", ".AppleDouble", "Thumbs.db", "desktop.ini"]);
 
 export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
-  const entries = (await readdir(path, { withFileTypes: true })).filter((entry) => !NOISE.has(entry.name)).map((entry): DirectoryEntry => ({
-    name: entry.name,
-    path: join(path, entry.name),
-    kind: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "link" : "other",
-  }));
+  const entries = (await readdir(path, { withFileTypes: true }))
+    .filter((entry) => !NOISE.has(entry.name))
+    .map((entry): DirectoryEntry => ({
+      name: entry.name,
+      path: join(path, entry.name),
+      kind: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "link" : "other",
+    }));
   entries.sort((left, right) => {
     const directoryOrder = Number(right.kind === "directory") - Number(left.kind === "directory");
     return directoryOrder || left.name.localeCompare(right.name);

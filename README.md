@@ -23,20 +23,20 @@ File and folder icons use **Nerd Font** glyphs. Set your terminal font to a patc
 
 ## Keys
 
-| Key | File pane | Text pane |
-| --- | --- | --- |
-| `j` / `k`, Down / Up | Select next / previous | Scroll one line |
-| `h`, Left, Backspace | Collapse folder or select parent | Scroll horizontally (`h` / Left) |
-| `l` / Right | Expand folder, select its first child, or open file | Scroll horizontally |
-| Enter | Toggle folder or open file | — |
-| `g` / `G`, Home / End | First / last entry | Top / bottom |
-| Ctrl+`u` / Ctrl+`d`, Page Up / Down | — | Scroll half a page |
-| Tab | Switch panes | Switch panes |
-| `w` | Toggle word wrap | Toggle word wrap |
-| `d` | Show / hide the diff screen | Show / hide the diff screen |
-| Escape | Focus file pane | Focus file pane |
-| `q` / Ctrl+`c` | Quit | Quit |
-| Ctrl+Left / Ctrl+Right | Narrow / widen sidebar | Narrow / widen sidebar |
+| Key                                 | File pane                                           | Text pane                        |
+| ----------------------------------- | --------------------------------------------------- | -------------------------------- |
+| `j` / `k`, Down / Up                | Select next / previous                              | Scroll one line                  |
+| `h`, Left, Backspace                | Collapse folder or select parent                    | Scroll horizontally (`h` / Left) |
+| `l` / Right                         | Expand folder, select its first child, or open file | Scroll horizontally              |
+| Enter                               | Toggle folder or open file                          | —                                |
+| `g` / `G`, Home / End               | First / last entry                                  | Top / bottom                     |
+| Ctrl+`u` / Ctrl+`d`, Page Up / Down | —                                                   | Scroll half a page               |
+| Tab                                 | Switch panes                                        | Switch panes                     |
+| `w`                                 | Toggle word wrap                                    | Toggle word wrap                 |
+| `d`                                 | Show / hide the diff screen                         | Show / hide the diff screen      |
+| Escape                              | Focus file pane                                     | Focus file pane                  |
+| `q` / Ctrl+`c`                      | Quit                                                | Quit                             |
+| Ctrl+Left / Ctrl+Right              | Narrow / widen sidebar                              | Narrow / widen sidebar           |
 
 **Mouse:** left-click a file to open it, or a folder to expand/collapse it. The wheel scrolls the pane under the pointer. Drag the gap between the panes to resize the sidebar. Keyboard navigation remains available.
 
@@ -48,17 +48,17 @@ It compares the working tree with `HEAD`: staged and unstaged edits together, pl
 
 The screen keeps itself current while it is open: about every two seconds (less often in a slow repository) it re-reads git, so a commit, `git add`, or an edit in your editor shows up on its own. The highlight stays on the same file, or near its place if that file was committed, and the diff you are reading is redrawn in place without losing your scroll position. Nothing is redrawn when nothing changed, and it stops entirely when you leave the screen.
 
-| Key | List | Diff |
-| --- | --- | --- |
-| `j` / `k`, Down / Up | Select next / previous file | Scroll one line |
-| Enter, `l` / Right | Focus the diff | — |
+| Key                      | List                                   | Diff                                   |
+| ------------------------ | -------------------------------------- | -------------------------------------- |
+| `j` / `k`, Down / Up     | Select next / previous file            | Scroll one line                        |
+| Enter, `l` / Right       | Focus the diff                         | —                                      |
 | `n` / `p` (or `]` / `[`) | Next / previous hunk, across all files | Next / previous hunk, across all files |
-| `a` | All files / highlighted file only | All files / highlighted file only |
-| `s` | Split / unified view | Split / unified view |
-| `w` | Wrap long lines | Wrap long lines |
-| `r` | Reload now | Reload now |
-| Tab, Escape | Switch panes / back to the list | Switch panes / back to the list |
-| `d` | Back to the file view | Back to the file view |
+| `a`                      | All files / highlighted file only      | All files / highlighted file only      |
+| `s`                      | Split / unified view                   | Split / unified view                   |
+| `w`                      | Wrap long lines                        | Wrap long lines                        |
+| `r`                      | Reload now                             | Reload now                             |
+| Tab, Escape              | Switch panes / back to the list        | Switch panes / back to the list        |
+| `d`                      | Back to the file view                  | Back to the file view                  |
 
 The footer shows `CHANGES` or `DIFF` instead of `FILES` or `READER`, with the file count, hunks and total `+`/`−` lines of everything in the reader. A directory outside a repository, a missing `git`, or a clean working tree is reported in place; nothing else about the app changes.
 
@@ -78,7 +78,11 @@ Scouter stays read-only here. Git works on a private copy of the index, because 
 
 ```sh
 bun run dev                 # Restart on source changes
-bun run check               # TypeScript + Bun tests
+bun run check               # Everything below, in order
+bun run typecheck           # tsrs --noEmit (Rust port of the TypeScript 7 compiler)
+bun run lint                # oxlint
+bun run format:check        # oxfmt --check; `bun run format` rewrites files
+bun test
 bun run start --help
 bun audit
 ```

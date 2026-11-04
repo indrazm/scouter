@@ -68,7 +68,7 @@ export class FileTree {
     const target = await realpath(entry.path);
     let parent = entry.parentPath;
     while (parent) {
-      if (await realpath(parent) === target) throw new Error("Cannot expand a symbolic-link loop.");
+      if ((await realpath(parent)) === target) throw new Error("Cannot expand a symbolic-link loop.");
       parent = this.nodes.get(parent)?.parentPath;
     }
   }

@@ -1,10 +1,4 @@
-import {
-  MouseButton,
-  ScrollBoxRenderable,
-  TextRenderable,
-  type KeyEvent,
-  type RenderContext,
-} from "@opentui/core";
+import { MouseButton, ScrollBoxRenderable, TextRenderable, type KeyEvent, type RenderContext } from "@opentui/core";
 import { extname } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
@@ -20,13 +14,27 @@ interface ExplorerRow {
 }
 
 const fileIcons: Record<string, string> = {
-  ".js": "\ue74e", ".mjs": "\ue74e", ".cjs": "\ue74e",
-  ".ts": "\ue628", ".mts": "\ue628", ".cts": "\ue628",
-  ".jsx": "\ue7ba", ".tsx": "\ue7ba", ".json": "\ue60b",
-  ".md": "\uf48a", ".mdx": "\uf48a", ".py": "\ue73c",
-  ".go": "\ue627", ".rs": "\ue7a8", ".zig": "\ue6a9",
-  ".html": "\ue736", ".css": "\ue749", ".sh": "\uf489",
-  ".yaml": "\uf013", ".yml": "\uf013", ".toml": "\uf013",
+  ".js": "\ue74e",
+  ".mjs": "\ue74e",
+  ".cjs": "\ue74e",
+  ".ts": "\ue628",
+  ".mts": "\ue628",
+  ".cts": "\ue628",
+  ".jsx": "\ue7ba",
+  ".tsx": "\ue7ba",
+  ".json": "\ue60b",
+  ".md": "\uf48a",
+  ".mdx": "\uf48a",
+  ".py": "\ue73c",
+  ".go": "\ue627",
+  ".rs": "\ue7a8",
+  ".zig": "\ue6a9",
+  ".html": "\ue736",
+  ".css": "\ue749",
+  ".sh": "\uf489",
+  ".yaml": "\uf013",
+  ".yml": "\uf013",
+  ".toml": "\uf013",
 };
 
 export class FileExplorer extends ScrollBoxRenderable {
@@ -35,7 +43,13 @@ export class FileExplorer extends ScrollBoxRenderable {
 
   constructor(context: RenderContext, options: ExplorerOptions) {
     super(context, {
-      id: "browser", width: "100%", flexGrow: 1, flexBasis: 0, minHeight: 0, scrollX: false, scrollY: true,
+      id: "browser",
+      width: "100%",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      scrollX: false,
+      scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
     });
@@ -48,8 +62,13 @@ export class FileExplorer extends ScrollBoxRenderable {
     for (const row of this.rows) row.text.destroy();
     this.rows = entries.map((entry, index) => {
       const text = new TextRenderable(this.ctx, {
-        id: `tree-row-${index}`, height: 1, width: "100%", flexShrink: 0,
-        wrapMode: "none", selectable: false, bg: "transparent",
+        id: `tree-row-${index}`,
+        height: 1,
+        width: "100%",
+        flexShrink: 0,
+        wrapMode: "none",
+        selectable: false,
+        bg: "transparent",
         onMouseDown: (event) => {
           if (event.button !== MouseButton.LEFT) return;
           event.preventDefault();
@@ -61,7 +80,12 @@ export class FileExplorer extends ScrollBoxRenderable {
       return { entry, text };
     });
     this.selectedIndex = -1;
-    this.selectIndex(Math.max(0, entries.findIndex((entry) => entry.path === selectedPath)));
+    this.selectIndex(
+      Math.max(
+        0,
+        entries.findIndex((entry) => entry.path === selectedPath),
+      ),
+    );
     this.rows.forEach((row, index) => this.paintRow(row, index));
   }
 
@@ -107,8 +131,13 @@ export class FileExplorer extends ScrollBoxRenderable {
     const folder = entry.kind === "directory" || entry.children !== undefined;
     const expanded = entry.state === "expanded";
     const marker = folder ? (expanded ? "▾ " : "▸ ") : "  ";
-    const icon = folder ? (expanded ? "\uf07c" : "\uf07b")
-      : entry.kind === "link" ? "\uf0c1" : fileIcons[extname(entry.name).toLowerCase()] ?? "\uf016";
+    const icon = folder
+      ? expanded
+        ? "\uf07c"
+        : "\uf07b"
+      : entry.kind === "link"
+        ? "\uf0c1"
+        : (fileIcons[extname(entry.name).toLowerCase()] ?? "\uf016");
     row.text.content = `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
     row.text.fg = selected ? theme.accent : theme.text;
   }

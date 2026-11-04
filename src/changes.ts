@@ -45,7 +45,13 @@ export class ChangeList extends ScrollBoxRenderable {
 
   constructor(context: RenderContext, options: ChangeListOptions) {
     super(context, {
-      id: "changes", width: "100%", flexGrow: 1, flexBasis: 0, minHeight: 0, scrollX: false, scrollY: true,
+      id: "changes",
+      width: "100%",
+      flexGrow: 1,
+      flexBasis: 0,
+      minHeight: 0,
+      scrollX: false,
+      scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
     });
@@ -108,7 +114,11 @@ export class ChangeList extends ScrollBoxRenderable {
 
   private createRow(change: Change, index: number): ChangeRow {
     const box = new BoxRenderable(this.ctx, {
-      id: `change-row-${index}`, width: "100%", height: 1, flexShrink: 0, flexDirection: "row",
+      id: `change-row-${index}`,
+      width: "100%",
+      height: 1,
+      flexShrink: 0,
+      flexDirection: "row",
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
         event.preventDefault();

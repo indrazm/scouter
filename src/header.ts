@@ -22,7 +22,12 @@ export class PaneHeader {
 
   constructor(context: RenderContext, id: string) {
     this.root = new BoxRenderable(context, {
-      id, height: 1, width: "100%", flexDirection: "row", flexShrink: 0, paddingRight: 1,
+      id,
+      height: 1,
+      width: "100%",
+      flexDirection: "row",
+      flexShrink: 0,
+      paddingRight: 1,
     });
     const text = (options: Record<string, unknown>): TextRenderable =>
       new TextRenderable(context, { height: 1, wrapMode: "none", selectable: false, ...options });
@@ -56,9 +61,11 @@ export class PaneHeader {
     const segments: Segment[] = [];
     for (const badge of this.badgeList) {
       if (segments.length) segments.push({ text: " " });
-      segments.push(badge.kind === "pill"
-        ? { text: ` ${badge.text} `, fg: theme.accentInk, bg: theme.accent, bold: true }
-        : { text: badge.text, fg: theme.dim });
+      segments.push(
+        badge.kind === "pill"
+          ? { text: ` ${badge.text} `, fg: theme.accentInk, bg: theme.accent, bold: true }
+          : { text: badge.text, fg: theme.dim },
+      );
     }
     this.badges.content = styled(segments);
   }

@@ -17,20 +17,36 @@ interface SpanSource {
 
 /** Background intents of every rendered span that starts at or right of `fromX`, skipping the sidebar. */
 export function backgroundIntentsFrom(setup: SpanSource, fromX: number, toY = Infinity): string[] {
-  return setup.captureSpans().lines.slice(0, toY).flatMap((line) => {
-    let x = 0;
-    return line.spans.flatMap((span) => {
-      const start = x;
-      x += span.width;
-      return start >= fromX ? [span.bg.intent] : [];
+  return setup
+    .captureSpans()
+    .lines.slice(0, toY)
+    .flatMap((line) => {
+      let x = 0;
+      return line.spans.flatMap((span) => {
+        const start = x;
+        x += span.width;
+        return start >= fromX ? [span.bg.intent] : [];
+      });
     });
-  });
 }
 
 /** Runs git in `directory` with a fixed identity, throwing with git's own message on failure. */
 export function git(directory: string, ...args: string[]): string {
-  const result = Bun.spawnSync(["git", "-C", directory, "-c", "user.name=Test", "-c", "user.email=test@example.com",
-    "-c", "commit.gpgsign=false", ...args], { stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(
+    [
+      "git",
+      "-C",
+      directory,
+      "-c",
+      "user.name=Test",
+      "-c",
+      "user.email=test@example.com",
+      "-c",
+      "commit.gpgsign=false",
+      ...args,
+    ],
+    { stdout: "pipe", stderr: "pipe" },
+  );
   if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")}: ${result.stderr.toString()}`);
   return result.stdout.toString();
 }
@@ -60,13 +76,17 @@ export async function waitForText(setup: Frames, text: string, timeoutMs = 5000)
 
 /** Like `waitForText`, for anything a frame can satisfy, such as some text having gone away. */
 export async function waitForFrame(
-  setup: Frames, satisfied: (frame: string) => boolean, description: string, timeoutMs = 5000,
+  setup: Frames,
+  satisfied: (frame: string) => boolean,
+  description: string,
+  timeoutMs = 5000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
     await setup.renderOnce();
     if (satisfied(setup.captureCharFrame())) return;
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${description}. Last frame:\n${setup.captureCharFrame()}`);
+    if (Date.now() > deadline)
+      throw new Error(`Timed out waiting for ${description}. Last frame:\n${setup.captureCharFrame()}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }

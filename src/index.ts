@@ -42,7 +42,10 @@ async function main(): Promise<void> {
   const { createCliRenderer, RGBA } = await import("@opentui/core");
   const { ScouterApp } = await import("./app");
   const renderer = await createCliRenderer({
-    exitOnCtrlC: true, screenMode: "alternate-screen", backgroundColor: RGBA.defaultBackground(), consoleMode: "disabled",
+    exitOnCtrlC: true,
+    screenMode: "alternate-screen",
+    backgroundColor: RGBA.defaultBackground(),
+    consoleMode: "disabled",
     useMouse: true,
   });
   try {

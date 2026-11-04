@@ -58,7 +58,14 @@ export type Patch =
  * Git is only ever asked questions: it works on a private index copy (see `Repository.indexFile`), and
  * repository-configured helpers (external diff, text conversion, the filesystem monitor) are not run.
  */
-const readOnlyOptions = ["--no-pager", "--literal-pathspecs", "-c", "core.fsmonitor=false", "-c", "core.quotepath=false"];
+const readOnlyOptions = [
+  "--no-pager",
+  "--literal-pathspecs",
+  "-c",
+  "core.fsmonitor=false",
+  "-c",
+  "core.quotepath=false",
+];
 const diffOptions = ["--no-ext-diff", "--no-textconv", "--no-color", "-M"];
 
 function environment(indexFile?: string): Record<string, string> {
@@ -66,7 +73,11 @@ function environment(indexFile?: string): Record<string, string> {
   for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
   delete env.GIT_EXTERNAL_DIFF;
   return {
-    ...env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0", GIT_PAGER: "cat", ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}),
+    ...env,
+    GIT_OPTIONAL_LOCKS: "0",
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_PAGER: "cat",
+    ...(indexFile ? { GIT_INDEX_FILE: indexFile } : {}),
   };
 }
 
@@ -83,12 +94,18 @@ interface RunOptions {
 }
 
 async function run(
-  directory: string, args: string[], { limit = LIST_LIMIT_BYTES, indexFile, partial = false }: RunOptions = {},
+  directory: string,
+  args: string[],
+  { limit = LIST_LIMIT_BYTES, indexFile, partial = false }: RunOptions = {},
 ): Promise<Output> {
   let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     child = Bun.spawn(["git", "-C", directory, ...readOnlyOptions, ...args], {
-      stdin: "ignore", stdout: "pipe", stderr: "pipe", env: environment(indexFile), signal: AbortSignal.timeout(GIT_TIMEOUT_MS),
+      stdin: "ignore",
+      stdout: "pipe",
+      stderr: "pipe",
+      env: environment(indexFile),
+      signal: AbortSignal.timeout(GIT_TIMEOUT_MS),
     });
   } catch {
     throw new GitError("Git is not installed or could not be started.");
@@ -105,7 +122,9 @@ async function run(
 }
 
 async function readCapped(
-  stream: ReadableStream<Uint8Array>, limit: number, partial: boolean,
+  stream: ReadableStream<Uint8Array>,
+  limit: number,
+  partial: boolean,
 ): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   const chunks: Uint8Array[] = [];
   let length = 0;
@@ -139,7 +158,8 @@ export async function openRepository(directory: string): Promise<Repository> {
   try {
     root = (await run(directory, ["rev-parse", "--show-toplevel"])).text.trim();
   } catch (error) {
-    if (error instanceof GitError && /not a git repository/i.test(error.message)) throw new GitError("Not a git repository.");
+    if (error instanceof GitError && /not a git repository/i.test(error.message))
+      throw new GitError("Not a git repository.");
     throw error;
   }
   if (!root) throw new GitError("Not a git repository.");
@@ -151,14 +171,20 @@ export async function openRepository(directory: string): Promise<Repository> {
 }
 
 async function resolveBase(root: string): Promise<string> {
-  const head = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(() => true, () => false);
+  const head = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(
+    () => true,
+    () => false,
+  );
   return head ? "HEAD" : (await run(root, ["hash-object", "-t", "tree", "/dev/null"])).text.trim();
 }
 
 /** Runs git calls that use the private index one at a time, so a copy is never replaced while git reads it. */
 function exclusive<T>(repository: Repository, task: () => Promise<T>): Promise<T> {
   const result = repository.queue.then(task, task);
-  repository.queue = result.then(() => undefined, () => undefined);
+  repository.queue = result.then(
+    () => undefined,
+    () => undefined,
+  );
   return result;
 }
 
@@ -199,9 +225,14 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
     run(repository.root, ["ls-files", "--others", "--exclude-standard", "-z"], { indexFile }),
   ]);
   const counts = parseNumstat(numbers.text);
-  const changes = [...parseNameStatus(statuses.text, counts), ...splitZ(untracked.text).map((path): Change => ({
-    path, kind: "untracked", binary: false,
-  }))];
+  const changes = [
+    ...parseNameStatus(statuses.text, counts),
+    ...splitZ(untracked.text).map((path): Change => ({
+      path,
+      kind: "untracked",
+      binary: false,
+    })),
+  ];
   changes.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   const truncated = changes.length > MAX_CHANGES || statuses.truncated || numbers.truncated || untracked.truncated;
   return { changes: changes.slice(0, MAX_CHANGES), truncated };
@@ -210,9 +241,8 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
 /** The unified diff for one change, or a short explanation when there is nothing textual to show. */
 export async function readPatch(repository: Repository, change: Change): Promise<Patch> {
   if (change.binary) return binaryNotice;
-  const text = change.kind === "untracked"
-    ? await untrackedPatch(repository, change)
-    : await trackedPatch(repository, change);
+  const text =
+    change.kind === "untracked" ? await untrackedPatch(repository, change) : await trackedPatch(repository, change);
   return typeof text === "string" ? toPatch(change, text) : text;
 }
 
@@ -243,23 +273,43 @@ export async function readAllPatches(repository: Repository, changes: Change[]):
   let chunks = new Map<string, string>();
   let cut = false;
   if (changes.some((change) => change.kind !== "untracked" && !change.binary)) {
-    const output = await exclusive(repository, () => run(repository.root, ["diff", repository.base, ...diffOptions], {
-      limit: ALL_LIMIT_BYTES, indexFile: repository.indexFile, partial: true,
-    }));
+    const output = await exclusive(repository, () =>
+      run(repository.root, ["diff", repository.base, ...diffOptions], {
+        limit: ALL_LIMIT_BYTES,
+        indexFile: repository.indexFile,
+        partial: true,
+      }),
+    );
     cut = output.truncated;
     chunks = splitPatch(output.text, cut);
   }
   let budget = ALL_LIMIT_BYTES;
   const result: FilePatch[] = [];
   for (const change of changes) {
-    result.push({ change, patch: await patchFor(repository, change, chunks, cut, () => budget, (used) => { budget -= used; }) });
+    result.push({
+      change,
+      patch: await patchFor(
+        repository,
+        change,
+        chunks,
+        cut,
+        () => budget,
+        (used) => {
+          budget -= used;
+        },
+      ),
+    });
   }
   return result;
 }
 
 async function patchFor(
-  repository: Repository, change: Change, chunks: Map<string, string>, cut: boolean,
-  budget: () => number, spend: (bytes: number) => void,
+  repository: Repository,
+  change: Change,
+  chunks: Map<string, string>,
+  cut: boolean,
+  budget: () => number,
+  spend: (bytes: number) => void,
 ): Promise<Patch> {
   if (change.binary) return binaryNotice;
   if (change.kind === "untracked") {
@@ -299,16 +349,21 @@ function chunkPath(chunk: string): string | undefined {
   const header = /^diff --git a\/(.+)$/m.exec(chunk)?.[1];
   if (header === undefined) return undefined;
   const length = (header.length - 3) / 2;
-  return Number.isInteger(length) && header.slice(length, length + 3) === " b/" && header.slice(0, length) === header.slice(length + 3)
+  return Number.isInteger(length) &&
+    header.slice(length, length + 3) === " b/" &&
+    header.slice(0, length) === header.slice(length + 3)
     ? header.slice(0, length)
     : undefined;
 }
 
 async function trackedPatch(repository: Repository, change: Change): Promise<string | Patch> {
   const paths = change.oldPath ? [change.oldPath, change.path] : [change.path];
-  const output = await exclusive(repository, () => run(repository.root, ["diff", repository.base, ...diffOptions, "--", ...paths], {
-    limit: PATCH_LIMIT_BYTES, indexFile: repository.indexFile,
-  }));
+  const output = await exclusive(repository, () =>
+    run(repository.root, ["diff", repository.base, ...diffOptions, "--", ...paths], {
+      limit: PATCH_LIMIT_BYTES,
+      indexFile: repository.indexFile,
+    }),
+  );
   if (output.truncated) return tooLarge;
   return output.text;
 }
@@ -324,8 +379,13 @@ async function untrackedPatch(repository: Repository, change: Change): Promise<s
   if (document.lineCount === 0) return { kind: "notice", message: "New empty file." };
   const lines = document.text.replace(/\n$/, "").split("\n");
   return [
-    `diff --git a/${change.path} b/${change.path}`, "new file mode 100644", "--- /dev/null", `+++ b/${change.path}`,
-    `@@ -0,0 +1,${lines.length} @@`, ...lines.map((line) => `+${line}`), "",
+    `diff --git a/${change.path} b/${change.path}`,
+    "new file mode 100644",
+    "--- /dev/null",
+    `+++ b/${change.path}`,
+    `@@ -0,0 +1,${lines.length} @@`,
+    ...lines.map((line) => `+${line}`),
+    "",
   ].join("\n");
 }
 
@@ -347,7 +407,14 @@ function countLines(patch: string): { hunks: number; added: number; removed: num
   return { hunks, added, removed };
 }
 
-const kinds: Record<string, ChangeKind> = { M: "modified", A: "added", D: "deleted", R: "renamed", T: "typechange", U: "conflict" };
+const kinds: Record<string, ChangeKind> = {
+  M: "modified",
+  A: "added",
+  D: "deleted",
+  R: "renamed",
+  T: "typechange",
+  U: "conflict",
+};
 
 function splitZ(text: string): string[] {
   const tokens = text.split("\0");
@@ -355,7 +422,10 @@ function splitZ(text: string): string[] {
   return tokens;
 }
 
-function parseNameStatus(text: string, counts: Map<string, { added?: number; removed?: number; binary: boolean }>): Change[] {
+function parseNameStatus(
+  text: string,
+  counts: Map<string, { added?: number; removed?: number; binary: boolean }>,
+): Change[] {
   const tokens = splitZ(text);
   const changes: Change[] = [];
   for (let index = 0; index < tokens.length;) {
@@ -366,7 +436,9 @@ function parseNameStatus(text: string, counts: Map<string, { added?: number; rem
     const path = second ?? first;
     if (!path) continue;
     changes.push({
-      path, ...(renamed ? { oldPath: first } : {}), kind: kinds[status[0] ?? "M"] ?? "modified",
+      path,
+      ...(renamed ? { oldPath: first } : {}),
+      kind: kinds[status[0] ?? "M"] ?? "modified",
       ...(counts.get(path) ?? { binary: false }),
     });
   }
@@ -394,4 +466,6 @@ function parseNumstat(text: string): Map<string, { added?: number; removed?: num
 
 // Private index copies are removed when their repository is closed; this catches an abrupt exit.
 const openCopies = new Set<string>();
-process.once("exit", () => { for (const directory of openCopies) rmSync(directory, { recursive: true, force: true }); });
+process.once("exit", () => {
+  for (const directory of openCopies) rmSync(directory, { recursive: true, force: true });
+});
