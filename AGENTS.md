@@ -27,6 +27,6 @@ Scouter is a small, read-only terminal file viewer with a git diff screen (Bun, 
 ## Machine and git etiquette
 
 - **No stress or load tests, no busy loops, no running tests many times in a row** to chase flakes. Reason about the race, or write a deterministic test. Kill any process you start and leave running.
-- Commit and push only when asked. Do not touch the `v0.1.0` tag; a release is a new `v*` tag, made on request.
+- Commit and push only when asked. Do not touch the `v0.1.0` tag; a release is a new `v*` tag matching `package.json`, made on request (0011). CI runs `bun run check` on Linux and macOS, so do not rely on anything specific to this machine.
 - Do not install, upgrade or uninstall Scouter on the developer's machine unless asked. Tests use temporary `SCOUTER_HOME` / `SCOUTER_BIN_DIR`.
 - Keep the README short and about the product. Development detail goes in `DEVELOPMENT.md`.
