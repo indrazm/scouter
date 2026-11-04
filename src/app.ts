@@ -138,6 +138,7 @@ export class ScouterApp {
     const tint = tintedBackground(palette?.defaultBackground ?? null);
     this.browserPanel.backgroundColor = tint;
     this.footer.setBackground(tint);
+    this.diffScreen.setTint(tint);
     this.renderer.requestRender();
   }
 
@@ -225,7 +226,8 @@ export class ScouterApp {
     this.viewerHeader.setTitle(state.selected ? displayLabel(basename(state.selected.path)) : "Changes");
     this.updateViewerBadges();
     this.footer.setDiff({
-      location: state.selected?.path ?? state.repository, files: state.files, truncated: state.truncated, ...state.patch,
+      location: state.selected?.path ?? state.repository, files: state.files, truncated: state.truncated,
+      scope: state.scope, ...state.patch,
     });
   }
 
@@ -311,6 +313,7 @@ export class ScouterApp {
     if (this.mode === "diff") {
       const state = this.diffScreen.state();
       if (state.selected) badges.push({ text: state.selected.kind, kind: "quiet" });
+      badges.push({ text: state.scope === "all" ? "all files" : "one file", kind: "quiet" });
       if (state.view === "split") badges.push({ text: "split", kind: "pill" });
     } else {
       badges.push({ text: "read-only", kind: "quiet" });
@@ -476,6 +479,7 @@ export class ScouterApp {
   private handleDiffKey(key: KeyEvent): boolean {
     if (key.ctrl || key.meta) return false;
     if (key.name === "s") this.diffScreen.toggleView();
+    else if (key.name === "a") this.diffScreen.toggleScope();
     else if (key.name === "r") void this.loadDiff(() => this.onDiffChange());
     else if (key.name === "n" || key.sequence === "]") this.diffScreen.jumpHunk(1);
     else if (key.name === "p" || key.sequence === "[") this.diffScreen.jumpHunk(-1);

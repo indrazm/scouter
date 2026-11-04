@@ -12,10 +12,14 @@ export interface DocumentInfo {
   language: string;
 }
 
+export type DiffScope = "all" | "one";
+
 export interface DiffInfo {
   /** Repository-relative path of the highlighted file, or the repository name when nothing is highlighted. */
   location: string;
   files: number;
+  /** Whether the reader shows every file or only the highlighted one; the hint offers the other. */
+  scope: DiffScope;
   /** More files changed than are listed. */
   truncated?: boolean;
   /** Line counts and hunks of the diff on screen, when there is one. */
@@ -39,12 +43,13 @@ const pillLabels: Record<FooterMode, Record<FooterFocus, string>> = {
   diff: { files: "CHANGES", reader: "DIFF" },
 };
 
-function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean): Hint[] {
+function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: DiffScope): Hint[] {
   const pan: Hint[] = wrap ? [] : [["h l", "pan"]];
   if (mode === "diff") {
+    const other: Hint = ["a", scope === "all" ? "one file" : "all files"];
     return focus === "files"
-      ? [["j k", "move"], ["Enter", "view"], ["Tab", "diff"], ["s", "split"], ["r", "refresh"], ["d", "back"], ["^←→", "resize"], ["q", "quit"]]
-      : [["j k", "scroll"], ["n p", "hunk"], ["s", "split"], ["Tab", "files"], ["w", "wrap"], ...pan, ["g G", "top/bottom"],
+      ? [["j k", "move"], ["Enter", "view"], ["Tab", "diff"], ["s", "split"], other, ["r", "refresh"], ["d", "back"], ["^←→", "resize"], ["q", "quit"]]
+      : [["j k", "scroll"], ["n p", "hunk"], ["s", "split"], other, ["Tab", "files"], ["w", "wrap"], ...pan, ["g G", "top/bottom"],
         ["^d ^u", "page"], ["r", "refresh"], ["d", "back"], ["q", "quit"]];
   }
   return focus === "files"
@@ -223,7 +228,7 @@ export class Footer {
 
   private fitHints(columns: number): Segment[] {
     const segments: Segment[] = [];
-    for (const [key, action] of hintsFor(this.mode, this.focus, this.wrap)) {
+    for (const [key, action] of hintsFor(this.mode, this.focus, this.wrap, this.diff?.scope ?? "all")) {
       const hint: Segment[] = [{ text: key, fg: theme.accentSoft }, { text: ` ${action}`, fg: theme.dim }];
       const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
       if (segmentsWidth(next) > columns) break;

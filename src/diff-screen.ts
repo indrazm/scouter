@@ -8,17 +8,20 @@ import {
   type SyntaxStyle,
   type TreeSitterClient,
 } from "@opentui/core";
-import { basename } from "node:path";
-import { ChangeList } from "./changes";
+import { basename, posix } from "node:path";
+import { ChangeList, countSegments, statusLetters } from "./changes";
 import { languageFor } from "./code-view";
-import { describeError } from "./files";
+import { describeError, displayLabel } from "./files";
 import {
-  GitError, closeRepository, listChanges, openRepository, readPatch, type Change, type ChangeSet, type Patch, type Repository,
+  GitError, closeRepository, listChanges, openRepository, readAllPatches, readPatch,
+  type Change, type ChangeSet, type FilePatch, type Patch, type Repository,
 } from "./git";
 import { styled } from "./styled";
 import { theme } from "./theme";
 
 export type DiffView = "unified" | "split";
+/** `all` stacks every changed file's diff in one scrolling reader; `one` shows only the highlighted file. */
+export type DiffScope = "all" | "one";
 
 /** What the rest of the interface (header, footer) needs to know about the diff screen. */
 export interface DiffState {
@@ -26,11 +29,13 @@ export interface DiffState {
   /** Number of changed files listed. */
   files: number;
   truncated: boolean;
+  /** The highlighted file: the one picked in the list, or the one at the top of the reader while scrolling. */
   selected?: Change;
-  /** Line counts and hunk count of the diff on screen, when there is one. */
+  /** Line counts and hunk count of everything in the reader. */
   patch?: { added: number; removed: number; hunks: number };
   view: DiffView;
-  /** True when the reader shows a diff to scroll, rather than a message. */
+  scope: DiffScope;
+  /** True when the reader holds diffs to scroll, as opposed to the empty-state message. */
   showingDiff: boolean;
 }
 
@@ -42,16 +47,30 @@ interface DiffScreenOptions {
   onActivate: () => void;
   /** The user clicked a file that has no diff to read, so the click belongs to the list. */
   onFocusList: () => void;
-  /** The diff's rendered size changed, so the scroll position readout may be stale. */
+  /** The diff's rendered size or scroll position changed, so the position readout may be stale. */
   onLayout: () => void;
   /** How often to re-read git while the screen is watched. */
   pollMs: number;
+}
+
+/** One file in the reader: a header band naming it, then its diff or a note about why there is none. */
+interface Block {
+  change: Change;
+  patch: Patch;
+  root: BoxRenderable;
+  header: BoxRenderable;
+  diff?: DiffRenderable;
 }
 
 function signature(result: ChangeSet): string {
   const rows = result.changes.map((change) =>
     [change.path, change.oldPath, change.kind, change.added, change.removed, change.binary].join("\0"));
   return `${result.truncated}\n${rows.join("\n")}`;
+}
+
+/** Identity of what is on screen, so an unchanged re-read redraws nothing and keeps the scroll position. */
+function contentKey(files: FilePatch[]): string {
+  return files.map(({ change, patch }) => `${change.path}\0${patch.kind === "text" ? patch.text : patch.message}`).join("\u0001");
 }
 
 /** Added and removed lines are tinted lightly so the diff reads on any terminal background. */
@@ -61,41 +80,49 @@ const diffColors = {
   addedSignColor: theme.added, removedSignColor: theme.removed,
 } as const;
 
+const FALLBACK_BAND = "#131519";
+
 /**
- * Everything the diff screen needs: the list of changed files for the sidebar, the diff for the reader, the
+ * Everything the diff screen needs: the list of changed files for the sidebar, the diffs for the reader, the
  * message shown when there is nothing to diff, and the git calls behind them. It never modifies the repository.
  */
 export class DiffScreen {
   /** Sidebar content. */
   readonly list: ChangeList;
-  /** Reader content, holding either the scrollable diff or a centred message. */
+  /** Reader content, holding either the scrollable diffs or a centred message. */
   readonly body: BoxRenderable;
-  /** The scrollable diff, focusable like the file viewer. */
+  /** The scrollable diffs, focusable like the file viewer. */
   readonly scroller: ScrollBoxRenderable;
-  private readonly diff: DiffRenderable;
+  private readonly stack: BoxRenderable;
   private readonly message: BoxRenderable;
   private readonly messageTitle: TextRenderable;
   private readonly messageDetail: TextRenderable;
   private repository?: Repository;
+  private directory = "";
   private changes: Change[] = [];
   private truncated = false;
   private selected?: Change;
-  private patch?: Extract<Patch, { kind: "text" }>;
+  private blocks: Block[] = [];
   private view: DiffView = "unified";
+  private scope: DiffScope = "all";
   private wrap = false;
-  /** Bumped whenever the selection changes so a slow diff for an earlier file cannot overwrite a newer one. */
-  private request = 0;
-  /** True from the moment the selection moves until its diff has been read. */
-  private pending = false;
-  /** The user opened a file whose diff was still loading; hand focus over once it arrives. */
-  private activateWhenReady = false;
-  private watching = false;
-  private timer?: ReturnType<typeof setTimeout>;
+  private band = FALLBACK_BAND;
   /** Fingerprint of the list on screen, so a refresh only redraws it when something actually changed. */
   private signature = "";
-  /** Path of the file whose diff is on screen, if any. */
-  private shownPath?: string;
-  private messageKey = "";
+  /** Fingerprint of the diffs on screen. */
+  private shownKey = "";
+  /** Bumped whenever the selection or the scope changes so a slow read for an earlier choice cannot overwrite a newer one. */
+  private request = 0;
+  /** True from the moment diffs are being read until they are on screen. */
+  private pending = false;
+  /** The user opened a file while its diff was still loading; hand focus over once it arrives. */
+  private activateWhenReady = false;
+  /** Set while the list is rebuilt behind the user's back, so the reader is not scrolled to the highlight. */
+  private holdScroll = false;
+  /** A file to scroll to once newly built blocks have been laid out. */
+  private jumpAfterLayout?: Change;
+  private watching = false;
+  private timer?: ReturnType<typeof setTimeout>;
 
   constructor(context: RenderContext, private readonly options: DiffScreenOptions) {
     this.list = new ChangeList(context, {
@@ -110,14 +137,10 @@ export class DiffScreen {
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
       horizontalScrollbarOptions: { visible: false },
-      verticalScrollbarOptions: { onChange: () => options.onLayout() },
+      verticalScrollbarOptions: { onChange: () => this.layoutChanged() },
     });
-    this.diff = new DiffRenderable(context, {
-      id: "diff", diff: "", view: this.view, wrapMode: "none", flexShrink: 0, conceal: false, fg: theme.text,
-      syntaxStyle: options.syntax.style, treeSitterClient: options.syntax.client, lineNumberFg: theme.muted,
-      ...diffColors, onSizeChange: () => options.onLayout(),
-    });
-    this.scroller.add(this.diff);
+    this.stack = new BoxRenderable(context, { id: "diff-stack", flexDirection: "column", flexShrink: 0, minWidth: "100%" });
+    this.scroller.add(this.stack);
     this.message = new BoxRenderable(context, {
       id: "diff-message", flexGrow: 1, flexBasis: 0, minHeight: 0, flexDirection: "column",
       alignItems: "center", justifyContent: "center",
@@ -133,8 +156,12 @@ export class DiffScreen {
     this.scroller.visible = false;
   }
 
+  private get context(): RenderContext {
+    return this.list.ctx;
+  }
+
   get showingDiff(): boolean {
-    return this.patch !== undefined;
+    return this.blocks.length > 0;
   }
 
   /** Whether there is anything listed at all, whatever the highlighted file shows. */
@@ -143,15 +170,31 @@ export class DiffScreen {
   }
 
   state(): DiffState {
+    const totals = { added: 0, removed: 0, hunks: 0 };
+    let anyText = false;
+    for (const { patch } of this.blocks) {
+      if (patch.kind !== "text") continue;
+      anyText = true;
+      totals.added += patch.added;
+      totals.removed += patch.removed;
+      totals.hunks += patch.hunks;
+    }
     return {
       repository: this.repository ? basename(this.repository.root) : "",
       files: this.changes.length,
       truncated: this.truncated,
       ...(this.selected ? { selected: this.selected } : {}),
-      ...(this.patch ? { patch: { added: this.patch.added, removed: this.patch.removed, hunks: this.patch.hunks } } : {}),
+      ...(anyText ? { patch: totals } : {}),
       view: this.view,
+      scope: this.scope,
       showingDiff: this.showingDiff,
     };
+  }
+
+  /** The tint behind each file's header band, matching the sidebar and footer. */
+  setTint(color: string): void {
+    this.band = color;
+    for (const block of this.blocks) block.header.backgroundColor = color;
   }
 
   /**
@@ -176,8 +219,6 @@ export class DiffScreen {
     this.apply(result);
   }
 
-  private directory = "";
-
   /** Starts re-reading git in the background, so commits, staging and edits show up without pressing `r`. */
   watch(): void {
     if (this.watching) return;
@@ -199,17 +240,18 @@ export class DiffScreen {
     this.request += 1;
     this.changes = [];
     this.selected = undefined;
-    this.patch = undefined;
-    this.shownPath = undefined;
+    this.clearBlocks();
     this.signature = "";
+    this.shownKey = "";
     this.pending = false;
     this.activateWhenReady = false;
+    this.jumpAfterLayout = undefined;
     if (repository) await closeRepository(repository);
   }
 
   toggleView(): void {
     this.view = this.view === "unified" ? "split" : "unified";
-    this.diff.view = this.view;
+    for (const block of this.blocks) if (block.diff) block.diff.view = this.view;
     this.options.onChange();
   }
 
@@ -219,18 +261,33 @@ export class DiffScreen {
     this.options.onChange();
   }
 
-  /** Scrolls so the next (1) or previous (-1) hunk starts at the top of the reader. */
+  /** Switches between every file stacked in the reader and the highlighted file alone. */
+  toggleScope(): void {
+    this.scope = this.scope === "all" ? "one" : "all";
+    this.shownKey = "";
+    this.request += 1;
+    this.activateWhenReady = false;
+    if (this.scope === "all") {
+      this.jumpAfterLayout = this.selected;
+      void this.loadAll();
+    } else if (this.selected) {
+      void this.select(this.selected);
+    }
+    this.options.onChange();
+  }
+
+  /** Scrolls so the next (1) or previous (-1) hunk, across every file in the reader, is at the top. */
   jumpHunk(direction: 1 | -1): void {
-    const offsets = this.diff.getHunkRowOffsets();
+    const rows = this.hunkRows();
     const top = this.scroller.scrollTop;
-    const target = direction > 0 ? offsets.find((offset) => offset > top) : [...offsets].reverse().find((offset) => offset < top);
+    const target = direction > 0 ? rows.find((row) => row > top) : [...rows].reverse().find((row) => row < top);
     if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
   }
 
-  /** Enter or a click on the highlighted file: hand focus to its diff, now or as soon as it has loaded. */
+  /** Enter or a click on the highlighted file: hand focus to the reader, now or as soon as it has loaded. */
   openSelected(): void {
     if (this.pending) this.activateWhenReady = true;
-    else if (this.patch) this.options.onActivate();
+    else if (this.blocks.length) this.options.onActivate();
     else this.options.onFocusList();
   }
 
@@ -251,13 +308,14 @@ export class DiffScreen {
     if (this.watching) this.schedule(Math.max(this.options.pollMs, (Date.now() - started) * 3));
   }
 
-  /** Re-reads the changes and, if the list did not move, the highlighted file's diff, which may have been edited. */
+  /** Re-reads the changes and, if the list did not move, the diffs themselves, which may have been edited. */
   private async refresh(): Promise<void> {
     const repository = this.repository;
     if (!repository) return;
     const result = await listChanges(repository);
     if (repository !== this.repository) return;
     if (signature(result) !== this.signature) this.apply(result);
+    else if (this.scope === "all") await this.loadAll();
     else if (this.selected) await this.reread(this.selected);
   }
 
@@ -268,14 +326,20 @@ export class DiffScreen {
     this.truncated = result.truncated;
     this.signature = signature(result);
     if (result.changes.length) {
-      this.list.show(result.changes, keep);
+      this.holdScroll = true;
+      try {
+        this.list.show(result.changes, keep);
+      } finally {
+        this.holdScroll = false;
+      }
+      if (this.scope === "all") void this.loadAll();
     } else {
       this.request += 1;
       this.selected = undefined;
       this.pending = false;
       this.activateWhenReady = false;
       this.list.show([]);
-      this.showMessage("No changes", `The working tree matches ${this.baseLabel()}.`);
+      this.showEmpty("No changes", `The working tree matches ${this.baseLabel()}.`);
     }
     this.options.onChange();
   }
@@ -284,21 +348,24 @@ export class DiffScreen {
     return this.repository?.base === "HEAD" ? "HEAD" : "an empty repository";
   }
 
+  /** The list's highlight moved, by key or click. */
   private async select(change: Change | undefined): Promise<void> {
-    const request = ++this.request;
     this.selected = change;
-    this.activateWhenReady = false;
-    this.pending = change !== undefined;
     if (!change || !this.repository) return;
+    if (this.scope === "all") {
+      // Everything is already on screen; the reader just scrolls to this file's section.
+      if (!this.holdScroll) this.jumpTo(change);
+      this.options.onChange();
+      return;
+    }
+    const request = ++this.request;
+    this.activateWhenReady = false;
+    this.pending = true;
     const patch = await this.read(this.repository, change);
     if (request !== this.request) return;
     this.pending = false;
-    this.present(change, patch);
-    if (this.activateWhenReady) {
-      this.activateWhenReady = false;
-      if (this.patch) this.options.onActivate();
-      else this.options.onFocusList();
-    }
+    this.presentOne(change, patch);
+    this.finishPending();
   }
 
   /** Reads the highlighted file's diff again without touching the selection or any pending Enter. */
@@ -306,8 +373,39 @@ export class DiffScreen {
     const repository = this.repository;
     if (!repository) return;
     const patch = await this.read(repository, change);
-    if (repository !== this.repository || this.selected !== change || this.pending) return;
-    this.present(change, patch);
+    if (repository !== this.repository || this.scope !== "one" || this.selected !== change || this.pending) return;
+    this.presentOne(change, patch);
+  }
+
+  /** Reads every file's diff for the stacked view. */
+  private async loadAll(): Promise<void> {
+    const repository = this.repository;
+    if (!repository || this.scope !== "all" || !this.changes.length) return;
+    const request = ++this.request;
+    this.pending = true;
+    let files: FilePatch[];
+    try {
+      files = await readAllPatches(repository, this.changes);
+    } catch {
+      this.pending = false;
+      return;
+    }
+    if (request !== this.request || repository !== this.repository) return;
+    this.pending = false;
+    const key = contentKey(files);
+    if (key !== this.shownKey) {
+      this.shownKey = key;
+      this.show(files, "keep");
+      this.options.onChange();
+    }
+    this.finishPending();
+  }
+
+  private finishPending(): void {
+    if (!this.activateWhenReady) return;
+    this.activateWhenReady = false;
+    if (this.blocks.length) this.options.onActivate();
+    else this.options.onFocusList();
   }
 
   private async read(repository: Repository, change: Change): Promise<Patch> {
@@ -318,51 +416,144 @@ export class DiffScreen {
     }
   }
 
-  /** Puts a diff or message on screen, doing nothing when it is what the reader already shows. */
-  private present(change: Change, patch: Patch): void {
-    if (patch.kind === "text") {
-      if (this.shownPath === change.path && this.patch?.text === patch.text) return;
-      this.showPatch(change, patch);
-    } else if (!this.showMessage(change.path, patch.message)) {
-      return;
-    }
+  /** Puts one file alone on screen, doing nothing when it is already there as it is. */
+  private presentOne(change: Change, patch: Patch): void {
+    const key = contentKey([{ change, patch }]);
+    if (key === this.shownKey) return;
+    // The same file edited underneath the reader keeps its scroll position; a different file starts at the top.
+    const sameFile = this.blocks.length === 1 && this.blocks[0]?.change.path === change.path;
+    this.shownKey = key;
+    this.show([{ change, patch }], sameFile ? "keep" : "top");
     this.options.onChange();
   }
 
-  private showPatch(change: Change, patch: Extract<Patch, { kind: "text" }>): void {
-    // The same file edited underneath the reader keeps its scroll position; a different file starts at the top.
-    const sameFile = this.shownPath === change.path;
-    this.shownPath = change.path;
-    this.messageKey = "";
-    this.patch = patch;
-    this.diff.filetype = languageFor(change.path);
-    this.diff.diff = patch.text;
-    this.applyWrap();
-    this.scroller.visible = true;
+  /** Replaces what the reader shows. The new blocks are built before the old are removed, so nothing blinks. */
+  private show(files: FilePatch[], scroll: "keep" | "top"): void {
+    const previous = this.blocks;
+    this.blocks = files.map((file, index) => this.createBlock(file, index));
+    for (const block of this.blocks) this.stack.add(block.root);
+    for (const block of previous) block.root.destroyRecursively();
     this.message.visible = false;
-    if (!sameFile) this.scroller.scrollTo({ x: 0, y: 0 });
+    this.scroller.visible = true;
+    this.applyWrap();
+    if (scroll === "top") this.scroller.scrollTo({ x: 0, y: 0 });
+    if (this.scope === "all" && this.jumpAfterLayout) this.queueJump();
   }
 
-  /** Returns false when this exact message is already showing. */
-  private showMessage(title: string, detail: string): boolean {
-    const key = `${title}\0${detail}`;
-    if (key === this.messageKey && this.patch === undefined) return false;
-    this.messageKey = key;
-    this.shownPath = undefined;
-    this.patch = undefined;
+  private showEmpty(title: string, detail: string): void {
+    this.clearBlocks();
+    this.shownKey = "";
     this.messageTitle.content = styled([{ text: title, fg: theme.text, bold: true }]);
     this.messageDetail.content = styled([{ text: detail, fg: theme.muted }]);
     this.messageDetail.visible = detail !== "";
     this.message.visible = true;
     this.scroller.visible = false;
-    return true;
+  }
+
+  private clearBlocks(): void {
+    for (const block of this.blocks) block.root.destroyRecursively();
+    this.blocks = [];
+  }
+
+  private createBlock({ change, patch }: FilePatch, index: number): Block {
+    const context = this.context;
+    const root = new BoxRenderable(context, {
+      flexDirection: "column", flexShrink: 0, minWidth: "100%", ...(index ? { marginTop: 1 } : {}),
+    });
+    const header = new BoxRenderable(context, {
+      height: 1, width: "100%", flexShrink: 0, flexDirection: "row", paddingLeft: 1, paddingRight: 1, backgroundColor: this.band,
+    });
+    const { letter, color } = statusLetters[change.kind];
+    const folder = posix.dirname(change.path);
+    header.add(new TextRenderable(context, {
+      height: 1, flexGrow: 1, flexShrink: 1, minWidth: 0, wrapMode: "none", selectable: false,
+      content: styled([
+        { text: `${letter} `, fg: color, bold: true },
+        { text: displayLabel(posix.basename(change.path)), fg: theme.text, bold: true },
+        ...(change.oldPath ? [{ text: `  ← ${displayLabel(change.oldPath)}`, fg: theme.dim }] : []),
+        ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
+      ]),
+    }));
+    header.add(new TextRenderable(context, {
+      height: 1, flexShrink: 0, marginLeft: 1, wrapMode: "none", selectable: false, content: styled(countSegments(change)),
+    }));
+    root.add(header);
+    let diff: DiffRenderable | undefined;
+    if (patch.kind === "text") {
+      diff = new DiffRenderable(context, {
+        diff: patch.text, view: this.view, wrapMode: "none", flexShrink: 0, conceal: false, fg: theme.text,
+        filetype: languageFor(change.path), syntaxStyle: this.options.syntax.style,
+        treeSitterClient: this.options.syntax.client, lineNumberFg: theme.muted, ...diffColors,
+        onSizeChange: () => this.layoutChanged(),
+      });
+      root.add(diff);
+    } else {
+      root.add(new TextRenderable(context, {
+        height: 1, paddingLeft: 2, flexShrink: 0, wrapMode: "none", selectable: false,
+        content: styled([{ text: patch.message, fg: theme.muted }]),
+      }));
+    }
+    return { change, patch, root, header, ...(diff ? { diff } : {}) };
   }
 
   /** Wrapped text is laid out against the viewport width; unwrapped lines may run past it and scroll sideways. */
   private applyWrap(): void {
-    this.diff.wrapMode = this.wrap ? "word" : "none";
-    this.diff.flexShrink = this.wrap ? 1 : 0;
+    for (const block of this.blocks) {
+      block.root.flexShrink = this.wrap ? 1 : 0;
+      if (block.diff) {
+        block.diff.wrapMode = this.wrap ? "word" : "none";
+        block.diff.flexShrink = this.wrap ? 1 : 0;
+      }
+    }
+    this.stack.flexShrink = this.wrap ? 1 : 0;
     this.scroller.contentOptions = { flexDirection: "column", width: this.wrap ? "100%" : "auto" };
     this.scroller.scrollTo({ x: 0, y: this.scroller.scrollTop });
+  }
+
+  /** Where a block starts, in rows from the top of the scrolled content. */
+  private blockTop(block: Block): number {
+    return block.root.y - this.stack.y;
+  }
+
+  private jumpTo(change: Change): void {
+    const block = this.blocks.find((candidate) => candidate.change.path === change.path);
+    if (block) this.scroller.scrollTo({ x: 0, y: this.blockTop(block) });
+  }
+
+  /** Scrolls to a file once layout has placed the freshly built blocks; before that every block sits at row 0. */
+  private queueJump(): void {
+    queueMicrotask(() => {
+      const target = this.jumpAfterLayout;
+      this.jumpAfterLayout = undefined;
+      if (target && this.scope === "all") this.jumpTo(target);
+    });
+  }
+
+  /** Rows where each hunk starts (the file's header band, for a hunk at the top of its diff). */
+  private hunkRows(): number[] {
+    const rows: number[] = [];
+    for (const block of this.blocks) {
+      if (!block.diff) continue;
+      const top = block.diff.y - this.stack.y;
+      for (const offset of block.diff.getHunkRowOffsets()) rows.push(Math.max(0, top + offset - (offset === 0 ? 1 : 0)));
+    }
+    return rows;
+  }
+
+  private layoutChanged(): void {
+    this.followScroll();
+    this.options.onLayout();
+  }
+
+  /** While the reader has focus, the sidebar highlight follows whichever file is at the top of it. */
+  private followScroll(): void {
+    if (this.scope !== "all" || !this.scroller.focused || !this.blocks.length) return;
+    const top = this.scroller.scrollTop;
+    let current = this.blocks[0];
+    for (const block of this.blocks) if (this.blockTop(block) <= top) current = block;
+    if (!current || current.change.path === this.selected?.path) return;
+    this.selected = current.change;
+    this.list.highlight(current.change.path);
+    this.options.onChange();
   }
 }

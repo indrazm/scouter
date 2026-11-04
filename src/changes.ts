@@ -27,7 +27,7 @@ interface ChangeRow {
   counts: TextRenderable;
 }
 
-const statusLetters: Record<ChangeKind, { letter: string; color: string }> = {
+export const statusLetters: Record<ChangeKind, { letter: string; color: string }> = {
   modified: { letter: "M", color: theme.modified },
   added: { letter: "A", color: theme.added },
   deleted: { letter: "D", color: theme.removed },
@@ -65,6 +65,20 @@ export class ChangeList extends ScrollBoxRenderable {
     const nearby = Math.min(Math.max(previous, 0), changes.length - 1);
     this.selectIndex(changes.length ? (keep >= 0 ? keep : nearby) : -1);
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
+  }
+
+  /** Moves the highlight to `path` without announcing it, for when the reader's scrolling is what moved. */
+  highlight(path: string): void {
+    const index = this.rows.findIndex((row) => row.change.path === path);
+    if (index < 0 || index === this.selectedIndex) return;
+    const previousRow = this.rows[this.selectedIndex];
+    if (previousRow) this.paintRow(previousRow, false);
+    this.selectedIndex = index;
+    const row = this.rows[index];
+    if (row) {
+      this.paintRow(row, true);
+      this.scrollChildIntoView(row.box);
+    }
   }
 
   selected(): Change | undefined {
@@ -146,7 +160,7 @@ export class ChangeList extends ScrollBoxRenderable {
   }
 }
 
-function countSegments(change: Change): Segment[] {
+export function countSegments(change: Change): Segment[] {
   if (change.binary) return [{ text: "bin", fg: theme.dim }];
   if (change.added === undefined || change.removed === undefined) return [{ text: "new", fg: theme.dim }];
   const segments: Segment[] = [];

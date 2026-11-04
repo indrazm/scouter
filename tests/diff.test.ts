@@ -4,7 +4,7 @@ import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testin
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
-import { createRepository, git, waitForText, withDirectory } from "./fixtures";
+import { createRepository, git, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 const numbered = (count: number, replace: Record<number, string> = {}): string =>
   `${Array.from({ length: count }, (_, index) => replace[index + 1] ?? `line ${index + 1}`).join("\n")}\n`;
@@ -53,14 +53,14 @@ test("a clean repository shows an empty state instead of a diff", () => withDire
   expect(footer(setup).status).toContain("CHANGES");
 }));
 
-test("lists changes, shows the highlighted file's diff, and returns to the file view untouched", () => withDirectory(async (directory) => {
+test("shows every changed file's diff stacked by default, and returns to the file view untouched", () => withDirectory(async (directory) => {
   await createRepository(directory, {
     "README.md": "# Title\n\nbody\n", "gone.txt": "bye\n", "src/app.ts": numbered(60),
   });
   await writeFile(join(directory, "src", "app.ts"), numbered(60, { 2: "line two changed", 55: "line fifty-five changed" }));
   await rm(join(directory, "gone.txt"));
   await writeFile(join(directory, "notes.txt"), "brand new\nfile\n");
-  await using setup = await createTestRenderer({ width: 110, height: 14 });
+  await using setup = await createTestRenderer({ width: 110, height: 24 });
   await using app = new ScouterApp(setup.renderer);
   await app.open(join(directory, "README.md"));
   await setup.renderOnce();
@@ -68,33 +68,30 @@ test("lists changes, shows the highlighted file's diff, and returns to the file 
 
   setup.mockInput.pressKey("d");
   await waitForText(setup, "CHANGES");
-  const list = setup.captureCharFrame();
-  for (const expected of ["gone.txt", "notes.txt", "app.ts", "src/", "−1", "new"]) expect(list).toContain(expected);
-  expect(footer(setup).hints).toContain("Enter view");
+  // Both small files are on screen together, each under a band naming it, before anything is selected.
   await waitForText(setup, "bye");
+  await waitForText(setup, "brand new");
+  const everything = setup.captureCharFrame();
+  for (const expected of ["gone.txt", "notes.txt", "app.ts", "src/", "−1", "new", "line two changed"]) expect(everything).toContain(expected);
+  expect(everything).not.toContain("body");
+  expect(headerRow(setup)).toContain("all files");
+  expect(footer(setup).hints).toContain("Enter view");
+  expect(footer(setup).hints).toContain("a one file");
+  await waitForText(setup, "3 files");
+  expect(footer(setup).status).toContain("4 hunks");
+  expect(footer(setup).status).toContain("+4 −3");
 
+  // Picking the last file scrolls the reader towards it (as far as the content allows) and names it.
   setup.mockInput.pressKey("G");
-  await waitForText(setup, "line two changed");
+  await setup.renderOnce();
+  expect(scroller(setup).scrollTop).toBeGreaterThan(0);
   expect(headerRow(setup)).toContain("app.ts");
-  expect(headerRow(setup)).toContain("modified");
-  await waitForText(setup, "2 hunks");
-  expect(footer(setup).status).toContain("+2 −2");
   expect(footer(setup).status).toContain("src/app.ts");
 
   setup.mockInput.pressTab();
   await setup.renderOnce();
   expect(footer(setup).status).toContain("DIFF");
   expect(footer(setup).hints).toContain("n p hunk");
-
-  // Hunks start at the top of the reader; the second one is far below the first.
-  expect(scroller(setup).scrollTop).toBe(0);
-  setup.mockInput.pressKey("n");
-  await setup.renderOnce();
-  const second = scroller(setup).scrollTop;
-  expect(second).toBeGreaterThan(0);
-  setup.mockInput.pressKey("p");
-  await setup.renderOnce();
-  expect(scroller(setup).scrollTop).toBe(0);
 
   setup.mockInput.pressKey("s");
   await setup.renderOnce();
@@ -112,6 +109,107 @@ test("lists changes, shows the highlighted file's diff, and returns to the file 
   expect(headerRow(setup)).toContain("read-only");
   expect(setup.captureCharFrame()).toContain("1  # Title");
   expect(git(directory, "status", "--porcelain")).toContain(" D gone.txt");
+}));
+
+test("n and p step through the hunks of every file in order", () => withDirectory(async (directory) => {
+  const names = ["a.txt", "b.txt", "c.txt"];
+  await createRepository(directory, Object.fromEntries(names.map((name) => [name, numbered(100)])));
+  for (const name of names) await writeFile(join(directory, name), numbered(100, { 2: `${name} early`, 90: `${name} late` }));
+  await using setup = await createTestRenderer({ width: 100, height: 12 });
+  await using app = new ScouterApp(setup.renderer);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "6 hunks");
+  setup.mockInput.pressTab();
+  await setup.renderOnce();
+
+  // Six hunks across three files: each press lands further down, until the end of the content stops it.
+  const tops: number[] = [scroller(setup).scrollTop];
+  for (let step = 0; step < 6; step += 1) {
+    setup.mockInput.pressKey("n");
+    await setup.renderOnce();
+    tops.push(scroller(setup).scrollTop);
+  }
+  expect(tops[0]).toBe(0);
+  for (let index = 1; index < tops.length; index += 1) expect(tops[index]!).toBeGreaterThanOrEqual(tops[index - 1]!);
+  expect(new Set(tops).size).toBeGreaterThanOrEqual(4);
+  expect(setup.captureCharFrame()).toContain("c.txt");
+
+  for (let step = 0; step < 8; step += 1) setup.mockInput.pressKey("p");
+  await setup.renderOnce();
+  expect(scroller(setup).scrollTop).toBe(0);
+}));
+
+test("the highlight follows the reader as it scrolls, and a pick in the list scrolls the reader", () => withDirectory(async (directory) => {
+  const names = ["a.txt", "b.txt", "c.txt"];
+  await createRepository(directory, Object.fromEntries(names.map((name) => [name, numbered(30)])));
+  for (const name of names) await writeFile(join(directory, name), numbered(30, { 2: `${name} edit one`, 28: `${name} edit two` }));
+  await using setup = await createTestRenderer({ width: 100, height: 16 });
+  await using app = new ScouterApp(setup.renderer);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "a.txt edit one");
+  await waitForText(setup, "3 files");
+  expect(footer(setup).status).toContain("a.txt");
+
+  // Pick from the list: the reader goes to that file.
+  setup.mockInput.pressKey("j");
+  await setup.renderOnce();
+  await setup.renderOnce();
+  const second = scroller(setup).scrollTop;
+  expect(second).toBeGreaterThan(0);
+  expect(footer(setup).status).toContain("b.txt");
+  expect(setup.captureCharFrame().split("\n")[1]).toContain("b.txt");
+
+  // Scroll the reader to the third file: the footer and header name it, and the list highlight moves with it.
+  setup.mockInput.pressTab();
+  await setup.renderOnce();
+  setup.mockInput.pressKey("G");
+  await setup.renderOnce();
+  await setup.renderOnce();
+  expect(footer(setup).status).toContain("c.txt");
+  expect(headerRow(setup)).toContain("c.txt");
+  setup.mockInput.pressTab();
+  await setup.renderOnce();
+  setup.mockInput.pressKey("k");
+  await setup.renderOnce();
+  await setup.renderOnce();
+  // The list was already on c.txt, so one step up is b.txt, not a.txt.
+  expect(footer(setup).status).toContain("b.txt");
+}));
+
+test("a toggles between every file and the highlighted file alone", () => withDirectory(async (directory) => {
+  await createRepository(directory, { "a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n" });
+  for (const name of ["a.txt", "b.txt", "c.txt"]) await writeFile(join(directory, name), `${name} changed\n`);
+  await using setup = await createTestRenderer({ width: 100, height: 20 });
+  await using app = new ScouterApp(setup.renderer);
+  await app.open(directory);
+  await setup.renderOnce();
+  setup.mockInput.pressKey("d");
+  await waitForText(setup, "c.txt changed");
+  expect(setup.captureCharFrame()).toContain("a.txt changed");
+
+  setup.mockInput.pressKey("a");
+  await waitForText(setup, "one file");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain("a.txt changed");
+  expect(setup.captureCharFrame()).not.toContain("b.txt changed");
+  expect(setup.captureCharFrame()).not.toContain("c.txt changed");
+  expect(footer(setup).hints).toContain("a all files");
+
+  setup.mockInput.pressKey("j");
+  await waitForText(setup, "b.txt changed");
+  expect(setup.captureCharFrame()).not.toContain("a.txt changed");
+
+  setup.mockInput.pressKey("a");
+  await waitForText(setup, "c.txt changed");
+  expect(setup.captureCharFrame()).toContain("a.txt changed");
+  expect(headerRow(setup)).toContain("all files");
+  // Going back to every file lands on the file that was highlighted.
+  expect(footer(setup).status).toContain("b.txt");
 }));
 
 test("r reloads the changes without leaving the diff screen", () => withDirectory(async (directory) => {
@@ -161,6 +259,8 @@ test("moving through the list quickly always ends on the last file's diff", () =
   await setup.renderOnce();
   setup.mockInput.pressKey("d");
   await waitForText(setup, "a.txt changed");
+  setup.mockInput.pressKey("a");
+  await waitForText(setup, "one file");
   for (let step = 0; step < 3; step += 1) setup.mockInput.pressKey("j");
   await waitForText(setup, "d.txt changed");
   await new Promise((resolve) => setTimeout(resolve, 100));
@@ -253,9 +353,10 @@ test("keeps the highlight near its place when its file is committed", () => with
   git(directory, "add", "b.txt");
   git(directory, "commit", "--quiet", "-m", "only b");
   await waitForText(setup, "2 files");
-  await waitForText(setup, "c.txt changed");
+  // The list updates first; the stacked diffs follow as soon as git has answered.
+  await waitForFrame(setup, (frame) => !frame.includes("b.txt changed"), "b.txt to leave the reader");
+  expect(setup.captureCharFrame()).toContain("c.txt changed");
   expect(footer(setup).status).toContain("c.txt");
-  expect(setup.captureCharFrame()).not.toContain("b.txt changed");
 }));
 
 test("redraws an edited diff in place, and leaves the reader alone while nothing changes", () => withDirectory(async (directory) => {

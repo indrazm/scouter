@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { chmod, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { GitError, closeRepository, listChanges, openRepository, readPatch, type Change } from "../src/git";
+import { GitError, closeRepository, listChanges, openRepository, readAllPatches, readPatch, type Change } from "../src/git";
 import { createRepository as repository, git, withDirectory } from "./fixtures";
 
 const byPath = (changes: Change[], path: string): Change => {
@@ -166,4 +166,83 @@ test("moves from the empty tree to HEAD once the first commit exists", () => wit
   git(directory, "commit", "--quiet", "-m", "first");
   expect(await listChanges(repo)).toEqual({ changes: [], truncated: false });
   expect(repo.base).toBe("HEAD");
+}));
+
+test("reads every file's diff in one pass and matches each to its own file", () => withDirectory(async (directory) => {
+  await repository(directory, {
+    "edited.txt": "one\ntwo\n", "my file.txt": "spaced\n", "gone.txt": "bye\n", "mode.sh": "echo\n", "image.bin": "x\n",
+    "moved.txt": "a stable body\nthat is long enough\nto be recognised\n", "src/deep/inner.ts": "const a = 1;\n",
+  });
+  await writeFile(join(directory, "edited.txt"), "one\nTWO edited\n");
+  await writeFile(join(directory, "my file.txt"), "spaced out\n");
+  await writeFile(join(directory, "src/deep/inner.ts"), "const a = 2;\n");
+  await rm(join(directory, "gone.txt"));
+  await chmod(join(directory, "mode.sh"), 0o755);
+  await writeFile(join(directory, "image.bin"), Buffer.from([0, 1, 2]));
+  await rename(join(directory, "moved.txt"), join(directory, "renamed.txt"));
+  git(directory, "add", "--all");
+  await writeFile(join(directory, "fresh.txt"), "untracked\n");
+  const repo = await openRepository(directory);
+  const { changes } = await listChanges(repo);
+
+  const all = await readAllPatches(repo, changes);
+  expect(all.map((entry) => entry.change.path)).toEqual(changes.map((change) => change.path));
+  const text = (path: string): string => {
+    const patch = all.find((entry) => entry.change.path === path)?.patch;
+    if (patch?.kind !== "text") throw new Error(`No text diff for ${path}.`);
+    return patch.text;
+  };
+  expect(text("edited.txt")).toContain("+TWO edited");
+  expect(text("edited.txt")).not.toContain("spaced");
+  expect(text("my file.txt")).toContain("+spaced out");
+  expect(text("gone.txt")).toContain("-bye");
+  expect(text("src/deep/inner.ts")).toContain("+const a = 2;");
+  expect(text("fresh.txt")).toContain("+untracked");
+  const notice = (path: string): string => {
+    const patch = all.find((entry) => entry.change.path === path)?.patch;
+    if (patch?.kind !== "notice") throw new Error(`Expected a notice for ${path}.`);
+    return patch.message;
+  };
+  expect(notice("image.bin")).toContain("Binary");
+  expect(notice("mode.sh")).toContain("permissions");
+  expect(notice("renamed.txt")).toContain("Renamed from moved.txt");
+  // The same text, file by file, is what the single-file view shows.
+  for (const entry of all) expect(entry.patch).toEqual(await readPatch(repo, entry.change));
+}));
+
+test("stops reading diffs past the size budget and says so for the files it skipped", () => withDirectory(async (directory) => {
+  const names = Array.from({ length: 6 }, (_, index) => `big${index}.txt`);
+  await repository(directory, Object.fromEntries(names.map((name) => [name, "start\n"])));
+  for (const name of names) await writeFile(join(directory, name), "filler line of text\n".repeat(45_000));
+  const repo = await openRepository(directory);
+  const all = await readAllPatches(repo, (await listChanges(repo)).changes);
+  const shown = all.filter((entry) => entry.patch.kind === "text");
+  const skipped = all.filter((entry) => entry.patch.kind === "notice");
+  expect(shown.length).toBeGreaterThan(0);
+  expect(skipped.length).toBeGreaterThan(0);
+  expect(skipped.every((entry) => entry.patch.kind === "notice" && entry.patch.message.includes("Press a"))).toBe(true);
+  // What is shown is whole files from the start of the list, never half of one.
+  expect(all.slice(0, shown.length).every((entry) => entry.patch.kind === "text")).toBe(true);
+}));
+
+test("sees a same-size edit made in the same second the index was written", () => withDirectory(async (directory) => {
+  // Git trusts a file whose size and modification time match the index, unless the entry is "racy": no older than
+  // the index file itself. The private index copy must keep the original's timestamp or that safeguard is lost.
+  await repository(directory);
+  git(directory, "config", "core.trustctime", "false");
+  const past = new Date("2020-01-01T00:00:00Z");
+  const file = join(directory, "a.txt");
+  await writeFile(file, "one\n");
+  await utimes(file, past, past);
+  git(directory, "add", "a.txt");
+  git(directory, "commit", "--quiet", "-m", "initial");
+  await utimes(join(directory, ".git", "index"), past, past);
+  await writeFile(file, "two\n");
+  await utimes(file, past, past);
+
+  const repo = await openRepository(directory);
+  const { changes } = await listChanges(repo);
+  expect(changes.map((change) => [change.path, change.kind])).toEqual([["a.txt", "modified"]]);
+  const patch = await readPatch(repo, changes[0]!);
+  expect(patch.kind === "text" && patch.text).toContain("+two");
 }));

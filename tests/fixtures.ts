@@ -52,14 +52,21 @@ export async function createRepository(directory: string, files: Record<string, 
  * Renders until the screen contains `text`, sleeping between passes. For results that depend on real work
  * outside the renderer, such as git processes, which `waitForFrame`'s few quick passes would not outlast.
  */
-export async function waitForText(
-  setup: { renderOnce(): Promise<void>; captureCharFrame(): string }, text: string, timeoutMs = 5000,
+type Frames = { renderOnce(): Promise<void>; captureCharFrame(): string };
+
+export async function waitForText(setup: Frames, text: string, timeoutMs = 5000): Promise<void> {
+  await waitForFrame(setup, (frame) => frame.includes(text), `"${text}"`, timeoutMs);
+}
+
+/** Like `waitForText`, for anything a frame can satisfy, such as some text having gone away. */
+export async function waitForFrame(
+  setup: Frames, satisfied: (frame: string) => boolean, description: string, timeoutMs = 5000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   while (true) {
     await setup.renderOnce();
-    if (setup.captureCharFrame().includes(text)) return;
-    if (Date.now() > deadline) throw new Error(`Timed out waiting for "${text}". Last frame:\n${setup.captureCharFrame()}`);
+    if (satisfied(setup.captureCharFrame())) return;
+    if (Date.now() > deadline) throw new Error(`Timed out waiting for ${description}. Last frame:\n${setup.captureCharFrame()}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
 }

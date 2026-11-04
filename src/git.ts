@@ -1,11 +1,13 @@
 import { rmSync } from "node:fs";
-import { copyFile, mkdtemp, rm } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { displayText, readDocument } from "./files";
 
 const LIST_LIMIT_BYTES = 8 * 1024 * 1024;
 const PATCH_LIMIT_BYTES = 1024 * 1024;
+/** Total size of the diffs shown together; files beyond it are left for the single-file view. */
+const ALL_LIMIT_BYTES = 4 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 15_000;
 /** The change list renders one row per entry, so a runaway repository is cut off rather than loaded whole. */
 export const MAX_CHANGES = 1000;
@@ -76,9 +78,13 @@ interface Output {
 interface RunOptions {
   limit?: number;
   indexFile?: string;
+  /** Keep what was read before `limit` was reached, instead of discarding it. */
+  partial?: boolean;
 }
 
-async function run(directory: string, args: string[], { limit = LIST_LIMIT_BYTES, indexFile }: RunOptions = {}): Promise<Output> {
+async function run(
+  directory: string, args: string[], { limit = LIST_LIMIT_BYTES, indexFile, partial = false }: RunOptions = {},
+): Promise<Output> {
   let child: Bun.Subprocess<"ignore", "pipe", "pipe">;
   try {
     child = Bun.spawn(["git", "-C", directory, ...readOnlyOptions, ...args], {
@@ -88,7 +94,7 @@ async function run(directory: string, args: string[], { limit = LIST_LIMIT_BYTES
     throw new GitError("Git is not installed or could not be started.");
   }
   const stderr = new Response(child.stderr).text();
-  const { bytes, truncated } = await readCapped(child.stdout, limit);
+  const { bytes, truncated } = await readCapped(child.stdout, limit, partial);
   if (truncated) child.kill();
   const code = await child.exited;
   if (!truncated && code !== 0) {
@@ -98,9 +104,12 @@ async function run(directory: string, args: string[], { limit = LIST_LIMIT_BYTES
   return { text: new TextDecoder().decode(bytes), truncated };
 }
 
-async function readCapped(stream: ReadableStream<Uint8Array>, limit: number): Promise<{ bytes: Uint8Array; truncated: boolean }> {
+async function readCapped(
+  stream: ReadableStream<Uint8Array>, limit: number, partial: boolean,
+): Promise<{ bytes: Uint8Array; truncated: boolean }> {
   const chunks: Uint8Array[] = [];
   let length = 0;
+  let truncated = false;
   const reader = stream.getReader();
   while (true) {
     const { done, value } = await reader.read();
@@ -108,7 +117,10 @@ async function readCapped(stream: ReadableStream<Uint8Array>, limit: number): Pr
     length += value.length;
     if (length > limit) {
       await reader.cancel();
-      return { bytes: new Uint8Array(), truncated: true };
+      if (!partial) return { bytes: new Uint8Array(), truncated: true };
+      chunks.push(value);
+      truncated = true;
+      break;
     }
     chunks.push(value);
   }
@@ -118,7 +130,7 @@ async function readCapped(stream: ReadableStream<Uint8Array>, limit: number): Pr
     bytes.set(chunk, offset);
     offset += chunk.length;
   }
-  return { bytes, truncated: false };
+  return { bytes, truncated };
 }
 
 /** Finds the repository containing `directory`, or explains why there is none. */
@@ -157,8 +169,19 @@ export async function closeRepository(repository: Repository): Promise<void> {
   await rm(directory, { recursive: true, force: true });
 }
 
+/**
+ * Copies the real index and gives the copy the same modification time. Git decides whether an edit made in the same
+ * second as the index was written can be trusted by comparing file times with the index file's own time; a copy
+ * stamped "now" would make git trust stale entries and report a changed file as unchanged.
+ */
 async function syncIndex(repository: Repository): Promise<void> {
-  await copyFile(repository.gitIndex, repository.indexFile).catch(() => rm(repository.indexFile, { force: true }));
+  try {
+    const { atime, mtime } = await stat(repository.gitIndex);
+    await copyFile(repository.gitIndex, repository.indexFile);
+    await utimes(repository.indexFile, atime, mtime);
+  } catch {
+    await rm(repository.indexFile, { force: true });
+  }
 }
 
 /** Everything that differs from `base`: staged and unstaged edits together, plus files git does not track yet. */
@@ -186,16 +209,99 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
 
 /** The unified diff for one change, or a short explanation when there is nothing textual to show. */
 export async function readPatch(repository: Repository, change: Change): Promise<Patch> {
-  if (change.binary) return { kind: "notice", message: "Binary file: no preview." };
+  if (change.binary) return binaryNotice;
   const text = change.kind === "untracked"
     ? await untrackedPatch(repository, change)
     : await trackedPatch(repository, change);
-  if (typeof text !== "string") return text;
-  const body = displayText(text).replace(/\t/g, "    ");
-  if (/^Binary files .* differ$/m.test(body)) return { kind: "notice", message: "Binary file: no preview." };
+  return typeof text === "string" ? toPatch(change, text) : text;
+}
+
+/** Turns git's raw patch text for one file into something safe and countable to show. */
+function toPatch(change: Change, raw: string): Patch {
+  if (raw.length > PATCH_LIMIT_BYTES) return tooLarge;
+  const body = displayText(raw).replace(/\t/g, "    ");
+  if (/^Binary files .* differ$/m.test(body)) return binaryNotice;
   const counts = countLines(body);
   if (counts.hunks === 0) return { kind: "notice", message: emptyMessage(change) };
   return { kind: "text", text: body, ...counts };
+}
+
+const binaryNotice: Patch = { kind: "notice", message: "Binary file: no preview." };
+const tooLarge: Patch = { kind: "notice", message: "This diff is too large to display (limit: 1 MiB)." };
+const notShown: Patch = { kind: "notice", message: "Too much to show at once. Press a to view this file alone." };
+
+export interface FilePatch {
+  change: Change;
+  patch: Patch;
+}
+
+/**
+ * The diff of every change, for showing them stacked. One `git diff` covers all tracked files and is split per
+ * file; untracked files are read from disk. Anything over the size budget is replaced by a note.
+ */
+export async function readAllPatches(repository: Repository, changes: Change[]): Promise<FilePatch[]> {
+  let chunks = new Map<string, string>();
+  let cut = false;
+  if (changes.some((change) => change.kind !== "untracked" && !change.binary)) {
+    const output = await exclusive(repository, () => run(repository.root, ["diff", repository.base, ...diffOptions], {
+      limit: ALL_LIMIT_BYTES, indexFile: repository.indexFile, partial: true,
+    }));
+    cut = output.truncated;
+    chunks = splitPatch(output.text, cut);
+  }
+  let budget = ALL_LIMIT_BYTES;
+  const result: FilePatch[] = [];
+  for (const change of changes) {
+    result.push({ change, patch: await patchFor(repository, change, chunks, cut, () => budget, (used) => { budget -= used; }) });
+  }
+  return result;
+}
+
+async function patchFor(
+  repository: Repository, change: Change, chunks: Map<string, string>, cut: boolean,
+  budget: () => number, spend: (bytes: number) => void,
+): Promise<Patch> {
+  if (change.binary) return binaryNotice;
+  if (change.kind === "untracked") {
+    if (budget() <= 0) return notShown;
+    const raw = await untrackedPatch(repository, change);
+    if (typeof raw !== "string") return raw;
+    spend(raw.length);
+    return toPatch(change, raw);
+  }
+  const chunk = chunks.get(change.path);
+  if (chunk !== undefined) return toPatch(change, chunk);
+  // Missing from the combined output: it was cut off, or its name was written in a form we do not parse.
+  return cut ? notShown : readPatch(repository, change);
+}
+
+/** Splits `git diff` output into one chunk per file, keyed by the file's current path. */
+function splitPatch(text: string, cut: boolean): Map<string, string> {
+  // A cut-off read ends mid-file; drop that last, incomplete file rather than show half of it.
+  const complete = cut ? text.slice(0, text.lastIndexOf("\ndiff --git ") + 1) : text;
+  const chunks = new Map<string, string>();
+  for (const chunk of complete.split(/^(?=diff --git )/m)) {
+    const path = chunkPath(chunk);
+    if (path !== undefined) chunks.set(path, chunk);
+  }
+  return chunks;
+}
+
+function chunkPath(chunk: string): string | undefined {
+  const renamed = /^rename to (.+)$/m.exec(chunk);
+  if (renamed) return renamed[1];
+  // Git ends the name with a tab when it contains spaces.
+  const added = /^\+\+\+ b\/(.*?)\t?$/m.exec(chunk);
+  if (added) return added[1];
+  const removed = /^--- a\/(.*?)\t?$/m.exec(chunk);
+  if (removed) return removed[1];
+  // Binary and mode-only changes have neither; without a rename both halves of the header name the same file.
+  const header = /^diff --git a\/(.+)$/m.exec(chunk)?.[1];
+  if (header === undefined) return undefined;
+  const length = (header.length - 3) / 2;
+  return Number.isInteger(length) && header.slice(length, length + 3) === " b/" && header.slice(0, length) === header.slice(length + 3)
+    ? header.slice(0, length)
+    : undefined;
 }
 
 async function trackedPatch(repository: Repository, change: Change): Promise<string | Patch> {
@@ -203,7 +309,7 @@ async function trackedPatch(repository: Repository, change: Change): Promise<str
   const output = await exclusive(repository, () => run(repository.root, ["diff", repository.base, ...diffOptions, "--", ...paths], {
     limit: PATCH_LIMIT_BYTES, indexFile: repository.indexFile,
   }));
-  if (output.truncated) return { kind: "notice", message: "This diff is too large to display (limit: 1 MiB)." };
+  if (output.truncated) return tooLarge;
   return output.text;
 }
 

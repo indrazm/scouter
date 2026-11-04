@@ -42,7 +42,7 @@ File and folder icons use **Nerd Font** glyphs. Set your terminal font to a patc
 
 ## Diff screen
 
-Press `d` to see what has changed in the git repository containing the directory you opened; press `d` again to go back to the file you were reading. The sidebar becomes a list of changed files (`M` modified, `A` added, `D` deleted, `R` renamed, `?` untracked) with their line counts, and the reader shows the diff of the highlighted file as you move through the list, with syntax highlighting for the same languages as the file view.
+Press `d` to see what has changed in the git repository containing the directory you opened; press `d` again to go back to the file you were reading. The sidebar becomes a list of changed files (`M` modified, `A` added, `D` deleted, `R` renamed, `?` untracked) with their line counts. The reader shows **every changed file's diff stacked in one scrolling view**, each under a band naming the file, with syntax highlighting for the same languages as the file view. Moving through the list scrolls the reader to that file, and while you scroll the reader yourself the list highlight and header follow whichever file is at the top. Press `a` to show only the highlighted file instead (and `a` again for all of them); the hint in the footer always names the other choice.
 
 It compares the working tree with `HEAD`: staged and unstaged edits together, plus files git does not track yet (shown as all additions). In a repository with no commits everything staged counts as added.
 
@@ -51,17 +51,18 @@ The screen keeps itself current while it is open: about every two seconds (less 
 | Key | List | Diff |
 | --- | --- | --- |
 | `j` / `k`, Down / Up | Select next / previous file | Scroll one line |
-| Enter, `l` / Right | Read the diff | — |
-| `n` / `p` (or `]` / `[`) | Next / previous hunk | Next / previous hunk |
+| Enter, `l` / Right | Focus the diff | — |
+| `n` / `p` (or `]` / `[`) | Next / previous hunk, across all files | Next / previous hunk, across all files |
+| `a` | All files / highlighted file only | All files / highlighted file only |
 | `s` | Split / unified view | Split / unified view |
 | `w` | Wrap long lines | Wrap long lines |
 | `r` | Reload now | Reload now |
 | Tab, Escape | Switch panes / back to the list | Switch panes / back to the list |
 | `d` | Back to the file view | Back to the file view |
 
-The footer shows `CHANGES` or `DIFF` instead of `FILES` or `READER`, with the file count, hunks and total `+`/`−` lines for the diff on screen. A directory outside a repository, a missing `git`, or a clean working tree is reported in place; nothing else about the app changes.
+The footer shows `CHANGES` or `DIFF` instead of `FILES` or `READER`, with the file count, hunks and total `+`/`−` lines of everything in the reader. A directory outside a repository, a missing `git`, or a clean working tree is reported in place; nothing else about the app changes.
 
-Scouter stays read-only here. Git works on a private copy of the index, because even `git diff` refreshes and rewrites `.git/index`; your repository is never modified. Programs configured by the repository (external diff tools, text conversion filters, the filesystem monitor) are not run, patch text has terminal control characters replaced just like file text, and file names are treated literally. Limits: 1,000 changed files listed, 1 MiB per diff; binary files show a note instead of a diff.
+Scouter stays read-only here. Git works on a private copy of the index, because even `git diff` refreshes and rewrites `.git/index`; your repository is never modified. Programs configured by the repository (external diff tools, text conversion filters, the filesystem monitor) are not run, patch text has terminal control characters replaced just like file text, and file names are treated literally. Limits: 1,000 changed files listed, 1 MiB per file's diff and 4 MiB across the stacked view (files past that are replaced by a note pointing at `a`); binary files show a note instead of a diff.
 
 ## Scope
 
