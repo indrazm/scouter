@@ -119,7 +119,9 @@ test("shows every changed file's diff stacked by default, and returns to the fil
     expect(footer(setup).status).toContain("3 lines");
     expect(headerRow(setup)).toContain("README.md");
     expect(headerRow(setup)).toContain("read-only");
-    expect(setup.captureCharFrame()).toContain("1  # Title");
+    // The file you were reading comes back as it was: Markdown, rendered.
+    await waitForText(setup, "body");
+    expect(setup.captureCharFrame()).not.toContain("# Title");
     expect(git(directory, "status", "--porcelain")).toContain(" D gone.txt");
   }));
 

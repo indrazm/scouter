@@ -10,6 +10,8 @@ export type FooterFocus = "files" | "reader";
 export interface DocumentInfo {
   lines: number;
   language: string;
+  /** Set for Markdown: whether it is shown rendered, so the hint can offer the other view. */
+  rendered?: boolean;
 }
 
 export type DiffScope = "all" | "one";
@@ -43,7 +45,7 @@ const pillLabels: Record<FooterMode, Record<FooterFocus, string>> = {
   diff: { files: "CHANGES", reader: "DIFF" },
 };
 
-function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: DiffScope): Hint[] {
+function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: DiffScope, rendered?: boolean): Hint[] {
   const pan: Hint[] = wrap ? [] : [["h l", "pan"]];
   if (mode === "diff") {
     const other: Hint = ["a", scope === "all" ? "one file" : "all files"];
@@ -74,6 +76,7 @@ function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: Di
           ["q", "quit"],
         ];
   }
+  const view: Hint[] = rendered === undefined ? [] : [["m", rendered ? "source" : "preview"]];
   return focus === "files"
     ? [
         ["j k", "move"],
@@ -87,12 +90,13 @@ function hintsFor(mode: FooterMode, focus: FooterFocus, wrap: boolean, scope: Di
       ]
     : [
         ["j k", "scroll"],
-        ...pan,
+        ...(rendered ? [] : pan),
         ["g G", "top/bottom"],
         ["^d ^u", "page"],
         ["Tab", "files"],
+        ...view,
         ["d", "changes"],
-        ["w", "wrap"],
+        ...(rendered ? [] : [["w", "wrap"] as Hint]),
         ["q", "quit"],
       ];
 }
@@ -309,7 +313,13 @@ export class Footer {
 
   private fitHints(columns: number): Segment[] {
     const segments: Segment[] = [];
-    for (const [key, action] of hintsFor(this.mode, this.focus, this.wrap, this.diff?.scope ?? "all")) {
+    for (const [key, action] of hintsFor(
+      this.mode,
+      this.focus,
+      this.wrap,
+      this.diff?.scope ?? "all",
+      this.document?.rendered,
+    )) {
       const hint: Segment[] = [
         { text: key, fg: theme.accentSoft },
         { text: ` ${action}`, fg: theme.dim },

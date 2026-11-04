@@ -4,7 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
-import { withDirectory } from "./fixtures";
+import { waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 test("opens files from the browser, switches panes, and ignores editing input", () =>
   withDirectory(async (directory) => {
@@ -138,7 +138,50 @@ test.each([
   }),
 );
 
-test("preserves Markdown markup and resets highlighting and line numbers for plain and empty files", () =>
+test("renders Markdown by default and shows its source on m, without touching the file", () =>
+  withDirectory(async (directory) => {
+    const source = "# Heading\n\nsome **bold** text\n\n- first\n- second\n";
+    const path = join(directory, "readme.md");
+    await writeFile(path, source);
+    await writeFile(join(directory, "notes.txt"), "# not markdown\n");
+    await using setup = await createTestRenderer({ width: 120, height: 20 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await waitForText(setup, "some bold text");
+    const rendered = setup.captureCharFrame();
+    expect(rendered).toContain("Heading");
+    expect(rendered).not.toContain("# Heading");
+    expect(rendered).not.toContain("**bold**");
+    expect(rendered).not.toContain("1  ");
+    expect(rendered).toContain("m source");
+    expect(rendered).toContain("rendered");
+
+    setup.mockInput.pressKey("m");
+    await setup.renderOnce();
+    const code = setup.renderer.root.findDescendantById("document");
+    if (!(code instanceof CodeRenderable)) throw new Error("No source view mounted.");
+    await code.highlightingDone;
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("1  # Heading");
+    expect(setup.captureCharFrame()).toContain("3  some **bold** text");
+    expect(setup.captureCharFrame()).toContain("m preview");
+
+    setup.mockInput.pressKey("m");
+    await waitForFrame(setup, (frame) => !frame.includes("# Heading"), "the rendered view again");
+    await waitForText(setup, "some bold text");
+
+    // Other files are never rendered, and offer no preview.
+    await app.open(join(directory, "notes.txt"));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("1  # not markdown");
+    expect(setup.captureCharFrame()).not.toContain("m preview");
+    setup.mockInput.pressKey("m");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("1  # not markdown");
+    expect(await readFile(path, "utf8")).toBe(source);
+  }));
+
+test("highlights source, and resets highlighting and line numbers for plain and empty files", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "readme.md"), "# Heading\n\n**bold**\n");
     await writeFile(join(directory, "unknown.xyz"), 'const plain = "untouched";\n');
@@ -146,6 +189,7 @@ test("preserves Markdown markup and resets highlighting and line numbers for pla
     await using setup = await createTestRenderer({ width: 120, height: 15 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(join(directory, "readme.md"));
+    setup.mockInput.pressKey("m");
     await setup.renderOnce();
     const code = setup.renderer.root.findDescendantById("document");
     if (!(code instanceof CodeRenderable)) throw new Error("No source view mounted.");

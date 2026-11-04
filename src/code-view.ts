@@ -1,6 +1,7 @@
 import {
   CodeRenderable,
   LineNumberRenderable,
+  MarkdownRenderable,
   SyntaxStyle,
   TreeSitterClient,
   pathToFiletype,
@@ -34,8 +35,13 @@ export class CodeView {
   private readonly style: SyntaxStyle;
   private readonly code: CodeRenderable;
   private readonly lines: LineNumberRenderable;
+  private readonly preview: MarkdownRenderable;
   private viewer?: ScrollBoxRenderable;
   private closing?: Promise<void>;
+  private wrap = false;
+  private document?: Document;
+  /** Markdown shows rendered unless the reader asked for its source. */
+  private source = false;
 
   /** `onLayout` fires when the document's rendered size changes: a new file, toggled wrapping, a resize. */
   constructor(
@@ -96,37 +102,89 @@ export class CodeView {
       showLineNumbers: false,
       onSizeChange: () => this.options.onLayout?.(),
     });
+    this.preview = new MarkdownRenderable(renderer, {
+      id: "document-preview",
+      content: "",
+      syntaxStyle: this.style,
+      treeSitterClient: this.client,
+      fg: "#d4d8de",
+      width: "100%",
+      flexShrink: 0,
+      paddingLeft: 2,
+      paddingRight: 2,
+      onSizeChange: () => this.options.onLayout?.(),
+    });
+    this.preview.visible = false;
   }
 
   mount(viewer: ScrollBoxRenderable): void {
     this.viewer = viewer;
     viewer.add(this.lines);
+    viewer.add(this.preview);
   }
 
   /** Wrapped text must be laid out against the viewport width, so the scroll content stops growing with the text. */
   setWrap(wrap: boolean): void {
+    this.wrap = wrap;
     this.code.wrapMode = wrap ? "word" : "none";
     this.code.flexShrink = wrap ? 1 : 0;
     this.lines.flexShrink = wrap ? 1 : 0;
     this.lines.width = wrap ? "100%" : "auto";
-    if (this.viewer)
-      this.viewer.contentOptions = wrap
-        ? { flexDirection: "column", width: "100%" }
-        : { flexDirection: "column", width: "auto" };
-    this.viewer?.scrollTo({ x: 0, y: this.viewer.scrollTop });
+    this.fitContent();
+  }
+
+  /** Rendered Markdown always wraps to the viewport; source and other files scroll sideways unless wrapping. */
+  private fitContent(): void {
+    if (!this.viewer) return;
+    const fill = this.wrap || this.previewing;
+    this.viewer.contentOptions = fill
+      ? { flexDirection: "column", width: "100%" }
+      : { flexDirection: "column", width: "auto" };
+    this.viewer.scrollTo({ x: 0, y: this.viewer.scrollTop });
+  }
+
+  /** Whether the open file is Markdown, which can be shown rendered or as source. */
+  get isMarkdown(): boolean {
+    return this.document !== undefined && languageFor(this.document.path) === "markdown";
+  }
+
+  /** Whether the reader currently shows rendered Markdown. */
+  get previewing(): boolean {
+    return this.isMarkdown && !this.source && (this.document?.lineCount ?? 0) > 0;
+  }
+
+  /** Switches the open Markdown file between rendered and source. Returns whether it is now rendered. */
+  toggleSource(): boolean {
+    if (this.isMarkdown) this.source = !this.source;
+    this.present();
+    return this.previewing;
   }
 
   show(document: Document): string | undefined {
     const language = languageFor(document.path);
+    if (document.path !== this.document?.path) this.source = false;
+    this.document = document;
+    this.present();
+    return language;
+  }
+
+  private present(): void {
+    const document = this.document;
+    if (!document) return;
+    const language = languageFor(document.path);
+    this.preview.visible = this.previewing;
+    this.lines.visible = !this.previewing;
+    if (this.previewing) this.preview.content = document.text;
     this.code.filetype = document.lineCount === 0 ? undefined : language;
     this.code.content = document.lineCount === 0 ? "(empty file)" : document.text.replace(/\n$/, "");
     this.lines.showLineNumbers = document.lineCount > 0;
-    return language;
+    this.fitContent();
   }
 
   destroy(): Promise<void> {
     if (this.closing) return this.closing;
     this.lines.destroyRecursively();
+    this.preview.destroyRecursively();
     this.style.destroy();
     this.closing = this.client.destroy();
     return this.closing;

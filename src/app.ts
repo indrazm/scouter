@@ -9,7 +9,7 @@ import {
 } from "@opentui/core";
 import { stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
-import { CodeView } from "./code-view";
+import { CodeView, languageFor } from "./code-view";
 import { DiffScreen } from "./diff-screen";
 import { FileExplorer } from "./explorer";
 import { FileTree } from "./file-tree";
@@ -57,6 +57,7 @@ export class ScouterApp {
   private paneBeforeDiff: "list" | "reader" = "list";
   private hasDocument = false;
   private documentTitle = "Reader";
+  private document?: Document;
   private wrap = false;
   private workerClosed = Promise.resolve();
   private preferredSidebarWidth?: number;
@@ -217,17 +218,37 @@ export class ScouterApp {
 
   private showDocument(document: Document): void {
     const language = this.codeView.show(document);
+    this.document = document;
     this.hasDocument = true;
     this.welcome.visible = false;
     this.viewer.visible = this.mode === "browse";
     this.viewer.scrollTo({ x: 0, y: 0 });
     this.documentTitle = displayLabel(basename(document.path));
     this.footer.setLocation(document.path);
-    this.footer.setDocument({ lines: document.lineCount, language: language ?? "plain text" });
+    this.setDocumentInfo(document, language);
     this.updateChrome();
     this.updatePosition();
     if (this.mode === "browse") this.viewer.focus();
     this.updateFocus();
+  }
+
+  private setDocumentInfo(document: Document, language: string | undefined): void {
+    this.footer.setDocument({
+      lines: document.lineCount,
+      language: language ?? "plain text",
+      rendered: this.codeView.isMarkdown ? this.codeView.previewing : undefined,
+    });
+  }
+
+  /** `m`: show the open Markdown file rendered or as source. */
+  private toggleMarkdownSource(): void {
+    if (!this.document || !this.codeView.isMarkdown || this.mode !== "browse") return;
+    this.codeView.toggleSource();
+    this.viewer.scrollTo({ x: 0, y: 0 });
+    this.setDocumentInfo(this.document, languageFor(this.document.path));
+    this.updateViewerBadges();
+    this.updatePosition();
+    this.renderer.requestRender();
   }
 
   /** The pane that lists things: files while browsing, changed files in the diff screen. */
@@ -352,7 +373,10 @@ export class ScouterApp {
     } else {
       badges.push({ text: "read-only", kind: "quiet" });
     }
-    if (this.wrap) badges.push({ text: "wrap", kind: "pill" });
+    // Rendered Markdown always wraps, so it shows `rendered` instead of `wrap`.
+    const rendered = this.mode === "browse" && this.hasDocument && this.codeView.previewing;
+    if (rendered) badges.push({ text: "rendered", kind: "quiet" });
+    if (this.wrap && !rendered) badges.push({ text: "wrap", kind: "pill" });
     this.viewerHeader.setBadges(badges);
   }
 
@@ -476,6 +500,11 @@ export class ScouterApp {
     if (key.name === "w" && !key.ctrl && !key.meta && !key.shift) {
       key.preventDefault();
       this.toggleWrap();
+      return;
+    }
+    if (key.name === "m" && !key.ctrl && !key.meta && !key.shift) {
+      key.preventDefault();
+      this.toggleMarkdownSource();
       return;
     }
     if (key.name === "d" && !key.ctrl && !key.meta && !key.shift) {
