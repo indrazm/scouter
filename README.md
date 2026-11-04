@@ -1,6 +1,6 @@
 # Scouter
 
-A small, read-only terminal file viewer. Inspired by Neovim's navigation, without editing, modes, plugins, or configuration.
+A small, read-only terminal file viewer with a built-in git diff screen. Inspired by Neovim's navigation, without editing, modes, plugins, or configuration.
 
 ## Run
 
@@ -81,5 +81,7 @@ bun audit
 ```
 
 `src/index.ts` handles CLI startup and terminal cleanup. `src/app.ts` owns the two-pane interface and keys. `src/file-tree.ts` manages lazy folder expansion; `src/explorer.ts` renders its icons and clickable, scrollable rows. `src/git.ts` asks git what changed and reads patches; `src/changes.ts` is the changed-file list and `src/diff-screen.ts` the diff view that ties them together. `src/header.ts` and `src/footer.ts` draw the pane headers and the two-row footer; `src/welcome.ts` is the empty reader screen; `src/theme.ts` holds the shared palette and `src/styled.ts` builds multi-colour text. `src/code-view.ts` owns syntax highlighting, the line-number gutter, and parser-worker cleanup. `src/files.ts` performs bounded, read-only filesystem access.
+
+Press `d` in Scouter itself to review changes to this README before committing.
 
 Bun + TypeScript + OpenTUI Core keeps the app small: no React layer or custom terminal renderer. Dependency versions and Bun's package-manager version are pinned; dependency install scripts are not trusted and should remain disabled.
