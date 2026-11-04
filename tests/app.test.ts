@@ -17,7 +17,7 @@ test("opens files from the browser, switches panes, and ignores editing input", 
     expect(setup.captureCharFrame()).toContain("Select a file");
     setup.mockInput.pressKey("j");
     setup.mockInput.pressEnter();
-    await setup.waitForFrame((frame) => frame.includes("1  first line"));
+    await waitForText(setup, "1  first line");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
     expect(setup.captureCharFrame()).toContain("2  second line");
     await setup.mockInput.typeText("iabc");
@@ -44,12 +44,12 @@ test("expands folders in place and collapses them without losing siblings or the
     await setup.renderOnce();
     setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("l");
-    await setup.waitForFrame((frame) => frame.includes("inside.txt"));
+    await waitForText(setup, "inside.txt");
     expect(setup.captureCharFrame()).toContain("▾ \uf07c nested/");
     expect(setup.captureCharFrame()).toContain("sibling.txt");
     setup.mockInput.pressKey("l");
     setup.mockInput.pressEnter();
-    await setup.waitForFrame((frame) => frame.includes("1  inside"));
+    await waitForText(setup, "1  inside");
     setup.mockInput.pressTab();
     setup.mockInput.pressKey("h");
     setup.mockInput.pressKey("h");
@@ -59,7 +59,7 @@ test("expands folders in place and collapses them without losing siblings or the
     expect(setup.captureCharFrame()).toContain("sibling.txt");
     expect(setup.captureCharFrame()).toContain("1  inside");
     setup.mockInput.pressEnter();
-    await setup.waitForFrame((frame) => frame.includes("▾ \uf07c nested/"));
+    await waitForText(setup, "▾ \uf07c nested/");
     expect(setup.captureCharFrame()).toContain("▾ \uf07c nested/");
     expect(setup.captureCharFrame()).toContain("\uf016 inside.txt");
     setup.mockInput.pressEnter();
@@ -349,7 +349,7 @@ test("the pane without focus is dimmed, but the welcome screen is not", () =>
 
     setup.mockInput.pressKey("j");
     setup.mockInput.pressEnter();
-    await setup.waitForFrame((frame) => frame.includes("1  alpha content"));
+    await waitForText(setup, "1  alpha content");
     await setup.renderOnce();
     const sidebarDimmed = brightness("alpha.txt", 1);
     const readerActive = brightness("alpha content", 1);
@@ -395,7 +395,7 @@ test("clicking a file from the reader opens it without flashing the panes' opaci
       });
     }
     await clickRow(setup, "b.txt");
-    await setup.waitForFrame((frame) => frame.includes("1  beta"));
+    await waitForText(setup, "1  beta");
     await setup.renderOnce();
     expect(writes).toEqual([]);
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
@@ -415,7 +415,7 @@ test("clicking folders keeps the sidebar focused, and a file that cannot open re
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
 
     await clickRow(setup, "folder/");
-    await setup.waitForFrame((frame) => frame.includes("inside.txt"));
+    await waitForText(setup, "inside.txt");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("browser");
 
     await clickRow(setup, "folder/");
@@ -426,7 +426,7 @@ test("clicking folders keeps the sidebar focused, and a file that cannot open re
     setup.mockInput.pressTab();
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
     await clickRow(setup, "zzz.bin");
-    await setup.waitForFrame((frame) => frame.includes("Binary files are not supported"));
+    await waitForText(setup, "Binary files are not supported");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("browser");
     expect(setup.captureCharFrame()).toContain("1  text");
   }));

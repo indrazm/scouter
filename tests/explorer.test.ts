@@ -4,7 +4,7 @@ import { createTestRenderer, MouseButtons, type TestRendererSetup } from "@opent
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
-import { backgroundIntentsFrom, withDirectory } from "./fixtures";
+import { backgroundIntentsFrom, waitForText, withDirectory } from "./fixtures";
 
 function explorerCell(setup: TestRendererSetup, name: string): [number, number] {
   const explorer = setup.renderer.root.findDescendantById("browser");
@@ -30,10 +30,10 @@ test("clicks open files and toggle folders while ignoring right clicks and empty
     await app.open(directory);
     await setup.renderOnce();
     await setup.mockMouse.click(...explorerCell(setup, "folder/"));
-    await setup.waitForFrame((frame) => frame.includes("\uf016 inside.txt"));
+    await waitForText(setup, "\uf016 inside.txt");
     expect(setup.captureCharFrame()).toContain("sibling.txt");
     await setup.mockMouse.click(...explorerCell(setup, "inside.txt"));
-    await setup.waitForFrame((frame) => frame.includes("1  mouse-opened content"));
+    await waitForText(setup, "1  mouse-opened content");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
     await setup.mockMouse.click(...explorerCell(setup, "folder/"), MouseButtons.RIGHT);
     await setup.renderOnce();
@@ -71,7 +71,7 @@ test("wheel scrolling and clicks use visible row bounds after keyboard scrolling
     setup.resize(100, 14);
     await setup.renderOnce();
     await setup.mockMouse.click(...explorerCell(setup, "file57.txt"));
-    await setup.waitForFrame((frame) => frame.includes("1  opened file 57"));
+    await waitForText(setup, "1  opened file 57");
     expect(setup.captureCharFrame()).not.toContain("1  opened file 59");
   }));
 
