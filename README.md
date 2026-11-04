@@ -1,26 +1,120 @@
 # Scouter
 
-A small, read-only terminal file viewer with a built-in git diff screen. Inspired by Neovim's navigation, without editing, modes, plugins, or configuration.
+**Look through any folder, and see what changed, without leaving the terminal.**
+
+Scouter is a read-only file viewer with a built-in git diff screen. Open a project, move around with the keys you already know from Vim, read any file with syntax highlighting, and press `d` to see every change in your working tree on one scrolling page. It cannot edit, save, or run anything, so it is safe to point at any folder.
+
+```sh
+scouter .
+```
+
+## Why Scouter
+
+- **Review before you commit.** Press `d` and every changed file's diff is stacked in one view: staged, unstaged, and new files together. Step from hunk to hunk with `n` and `p`.
+- **It keeps up with you.** Commit, `git add`, or save in your editor and the diff updates on its own. Your place in the page stays put.
+- **Read-only by design.** No editing, no modes, no plugins, no configuration. Your repository is never touched, not even its git index.
+- **Quiet interface.** No frames or divider lines. The active pane is bright, the other is dimmed, and a two-row footer tells you where you are and which keys do what.
+- **Fast to learn.** `j` and `k` to move, `l` to open, `h` to go back, `Tab` to switch panes. Mouse works too.
 
 ## Install
 
-Requires [Bun](https://bun.sh) 1.4.4 or newer and git. Then:
+You need [Bun](https://bun.sh) 1.4.4 or newer and git.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/indrazm/scouter/main/install.sh | bash
 ```
 
-and, in any folder:
+Then, in any folder:
 
 ```sh
-scouter .             # or: scouter ./src, scouter README.md
+scouter .                # open the current folder
+scouter ./src            # or any folder
+scouter README.md        # or a single file
+scouter --upgrade        # update to the newest release
 scouter --version
-scouter --upgrade     # update to the newest release
 ```
 
-The installer downloads the newest release tag (`v0.1.0` is the first; before any release exists it uses `main`) into `~/.scouter`, installs its dependencies with the lockfile and without install scripts, and puts a `scouter` command in `~/.local/bin`. It does not edit your shell configuration; if `~/.local/bin` is not on your `PATH` it prints the line to add. `scouter --upgrade` runs the installer again and reports `Upgraded: 0.1.0 → 0.1.1` or `Already up to date`.
+The installer puts the program in `~/.scouter` and a `scouter` command in `~/.local/bin`. It does not edit your shell configuration; if `~/.local/bin` is not on your `PATH`, it prints the one line to add.
 
-To remove it: `~/.scouter/install.sh --uninstall`. It only deletes what it created, and never overwrites a different `scouter` command or an existing folder it did not make.
+To remove Scouter: `~/.scouter/install.sh --uninstall`. It only deletes what it created.
+
+## Browse and read
+
+Open a folder and the sidebar shows its tree: folders first, expanding in place. Pick a file and it opens on the right with line numbers and syntax highlighting for JavaScript, TypeScript (and JSX/TSX), Markdown and Zig. Everything else shows as plain text.
+
+- Press `w` to wrap long lines.
+- Drag the edge of the sidebar to resize it, or use Ctrl+Left / Ctrl+Right.
+- Version-control folders and system clutter (`.git`, `.DS_Store`, and friends) stay out of your way.
+- File icons use [Nerd Font](https://www.nerdfonts.com) glyphs. Pick a patched font such as JetBrainsMono Nerd Font in your terminal for the best look; names stay readable without one.
+
+Scouter shows UTF-8 text files up to 1 MiB. Binary files, devices and pipes are declined with a message, and nothing is ever written to the files you view.
+
+## See what changed
+
+Press `d` in any git repository. The sidebar turns into the list of changed files, each with its status and line counts, and the reader shows all of their diffs stacked in one view.
+
+| Mark | Meaning                            |
+| ---- | ---------------------------------- |
+| `M`  | Modified                           |
+| `A`  | Added                              |
+| `D`  | Deleted                            |
+| `R`  | Renamed                            |
+| `?`  | Untracked (shown as all additions) |
+
+- **Everything compared with your last commit:** staged and unstaged edits together, plus files git does not track yet.
+- **Follow along:** move through the list and the reader jumps to that file; scroll the reader and the list follows.
+- **Hunk by hunk:** `n` and `p` step through every change across all files.
+- **One file or all:** `a` switches between the full stack and just the highlighted file.
+- **Unified or split:** `s` flips between a single column and side-by-side.
+- **Live:** the screen re-reads git every couple of seconds while it is open, so commits and edits appear by themselves. `r` reloads immediately.
+
+Press `d` again to return to the file you were reading. Outside a repository, or with a clean working tree, Scouter just says so.
+
+## Keys
+
+| Key                                 | Does                                                                     |
+| ----------------------------------- | ------------------------------------------------------------------------ |
+| `j` / `k`, Down / Up                | Move down / up (scroll, in the reader)                                   |
+| `h` / `l`, Left / Right             | Collapse / expand a folder or open a file; scroll sideways in the reader |
+| Enter                               | Open a file or toggle a folder                                           |
+| `g` / `G`, Home / End               | Jump to the top / bottom                                                 |
+| Ctrl+`u` / Ctrl+`d`, Page Up / Down | Scroll half a page                                                       |
+| Tab, Escape                         | Switch panes / return to the file list                                   |
+| `w`                                 | Toggle word wrap                                                         |
+| `d`                                 | Show / hide the diff screen                                              |
+| `q` / Ctrl+`c`                      | Quit                                                                     |
+
+In the diff screen:
+
+| Key                      | Does                              |
+| ------------------------ | --------------------------------- |
+| `n` / `p` (or `]` / `[`) | Next / previous hunk              |
+| `a`                      | All files / highlighted file only |
+| `s`                      | Split / unified view              |
+| `r`                      | Reload now                        |
+
+With the mouse, click a file or folder to open it, scroll the pane under the pointer with the wheel, and drag the gap between the panes to resize the sidebar.
+
+## Safe to point at anything
+
+Scouter is meant for looking at code you may not trust yet.
+
+- **It never changes your repository.** Git runs on a private copy of its index, because even `git diff` quietly rewrites `.git/index`. External diff tools, text filters and the filesystem monitor configured in a repository are not run.
+- **It never runs what it shows.** The `scouter` command starts Bun with an empty config and without loading `.env`, so a `bunfig.toml` or `.env` in the folder you are viewing cannot run code.
+- **Hostile text is defused.** Terminal control characters in files and patches are replaced before they reach your screen.
+- **The installer is careful.** It never overwrites a different `scouter` command or a folder it did not create, and installs dependencies from the lockfile with install scripts disabled.
+
+## Updating
+
+```sh
+scouter --upgrade
+```
+
+Scouter finds the newest release, replaces itself, and tells you what changed: `Upgraded: 0.1.0 → 0.1.1`, or `Already up to date`.
+
+## Customizing the install
+
+Set these before running the installer if the defaults do not suit you:
 
 | Variable          | Default               | Meaning                                                   |
 | ----------------- | --------------------- | --------------------------------------------------------- |
@@ -29,97 +123,6 @@ To remove it: `~/.scouter/install.sh --uninstall`. It only deletes what it creat
 | `SCOUTER_BIN_DIR` | `~/.local/bin`        | Where the `scouter` command goes                          |
 | `SCOUTER_REPO`    | the GitHub repository | Git URL to install from                                   |
 
-Running `./install.sh` from a checkout of this repository links the command to that checkout instead of downloading a copy; update that one with `git pull`.
+## Contributing
 
-The `scouter` command starts Bun with its own empty config and without loading `.env`. Otherwise Bun would read `bunfig.toml` (which can run a `preload` script) and `.env` from the folder you are viewing, and a viewer must not run code from what it views.
-
-## Run
-
-Requires Bun 1.4.4 or newer and an interactive terminal.
-
-```sh
-bun install --frozen-lockfile --ignore-scripts
-bun run start
-bun run start ./src
-bun run start ./README.md
-```
-
-With no path, Scouter opens the current directory. Dotfiles are shown, except version-control folders (`.git`, `.hg`, `.svn`) and operating-system clutter (`.DS_Store`, `.AppleDouble`, `Thumbs.db`, `desktop.ini`); directories appear first. Folders expand and collapse in place, keeping the tree rooted in the opened directory. Panes have no frames or divider lines. The sidebar has no header; its tree starts at the top. The reader header shows its title bold and bright when active (muted otherwise), plus a quiet `read-only` tag and a `wrap` chip while word wrap is on. The footer's `FILES` / `READER` pill always shows which pane is active. The pane without focus is also dimmed to 50% (`INACTIVE_OPACITY` in `src/app.ts`); the welcome screen is never dimmed.
-
-The footer has two rows. The status bar shows the active pane (`FILES` or `READER`), the path of the open file, and on the right its line count, language, encoding and scroll position (`Top`, `42%`, `Bot`, or `All`). On narrow terminals the right-hand facts drop away first, then the path is shortened from the left. Below it, key hints change with the active pane and drop from the end when they do not fit.
-
-The reader inherits your terminal's default color and opacity; the sidebar is a faint tint of that color (lighter on dark themes, darker on light ones) so the two panes read as separate without borders. The sidebar starts at roughly 25% of the terminal width (28–40 columns). **Drag the edge of the sidebar** (the one-column gap between the panes, which highlights on hover) to resize it, or press Ctrl+Left / Ctrl+Right. Your chosen width is retained for the current session, including when the terminal shrinks and grows. Resizing leaves at least 24 columns for the sidebar and 28 for the reader when the terminal is wide enough.
-
-File and folder icons use **Nerd Font** glyphs. Set your terminal font to a patched font such as JetBrainsMono Nerd Font or Hack Nerd Font. Scouter does not install fonts; filenames remain readable if an icon is unavailable.
-
-## Keys
-
-| Key                                 | File pane                                           | Text pane                        |
-| ----------------------------------- | --------------------------------------------------- | -------------------------------- |
-| `j` / `k`, Down / Up                | Select next / previous                              | Scroll one line                  |
-| `h`, Left, Backspace                | Collapse folder or select parent                    | Scroll horizontally (`h` / Left) |
-| `l` / Right                         | Expand folder, select its first child, or open file | Scroll horizontally              |
-| Enter                               | Toggle folder or open file                          | —                                |
-| `g` / `G`, Home / End               | First / last entry                                  | Top / bottom                     |
-| Ctrl+`u` / Ctrl+`d`, Page Up / Down | —                                                   | Scroll half a page               |
-| Tab                                 | Switch panes                                        | Switch panes                     |
-| `w`                                 | Toggle word wrap                                    | Toggle word wrap                 |
-| `d`                                 | Show / hide the diff screen                         | Show / hide the diff screen      |
-| Escape                              | Focus file pane                                     | Focus file pane                  |
-| `q` / Ctrl+`c`                      | Quit                                                | Quit                             |
-| Ctrl+Left / Ctrl+Right              | Narrow / widen sidebar                              | Narrow / widen sidebar           |
-
-**Mouse:** left-click a file to open it, or a folder to expand/collapse it. The wheel scrolls the pane under the pointer. Drag the gap between the panes to resize the sidebar. Keyboard navigation remains available.
-
-## Diff screen
-
-Press `d` to see what has changed in the git repository containing the directory you opened; press `d` again to go back to the file you were reading. The sidebar becomes a list of changed files (`M` modified, `A` added, `D` deleted, `R` renamed, `?` untracked) with their line counts. The reader shows **every changed file's diff stacked in one scrolling view**, each under a band naming the file, with syntax highlighting for the same languages as the file view. Moving through the list scrolls the reader to that file, and while you scroll the reader yourself the list highlight and header follow whichever file is at the top. Press `a` to show only the highlighted file instead (and `a` again for all of them); the hint in the footer always names the other choice.
-
-It compares the working tree with `HEAD`: staged and unstaged edits together, plus files git does not track yet (shown as all additions). In a repository with no commits everything staged counts as added.
-
-The screen keeps itself current while it is open: about every two seconds (less often in a slow repository) it re-reads git, so a commit, `git add`, or an edit in your editor shows up on its own. The highlight stays on the same file, or near its place if that file was committed, and the diff you are reading is redrawn in place without losing your scroll position. Nothing is redrawn when nothing changed, and it stops entirely when you leave the screen.
-
-| Key                      | List                                   | Diff                                   |
-| ------------------------ | -------------------------------------- | -------------------------------------- |
-| `j` / `k`, Down / Up     | Select next / previous file            | Scroll one line                        |
-| Enter, `l` / Right       | Focus the diff                         | —                                      |
-| `n` / `p` (or `]` / `[`) | Next / previous hunk, across all files | Next / previous hunk, across all files |
-| `a`                      | All files / highlighted file only      | All files / highlighted file only      |
-| `s`                      | Split / unified view                   | Split / unified view                   |
-| `w`                      | Wrap long lines                        | Wrap long lines                        |
-| `r`                      | Reload now                             | Reload now                             |
-| Tab, Escape              | Switch panes / back to the list        | Switch panes / back to the list        |
-| `d`                      | Back to the file view                  | Back to the file view                  |
-
-The footer shows `CHANGES` or `DIFF` instead of `FILES` or `READER`, with the file count, hunks and total `+`/`−` lines of everything in the reader. A directory outside a repository, a missing `git`, or a clean working tree is reported in place; nothing else about the app changes.
-
-Scouter stays read-only here. Git works on a private copy of the index, because even `git diff` refreshes and rewrites `.git/index`; your repository is never modified. Programs configured by the repository (external diff tools, text conversion filters, the filesystem monitor) are not run, patch text has terminal control characters replaced just like file text, and file names are treated literally. Limits: 1,000 changed files listed, 1 MiB per file's diff and 4 MiB across the stacked view (files past that are replaced by a note pointing at `a`); binary files show a note instead of a diff.
-
-## Scope
-
-- UTF-8 text files up to **1 MiB**, with line numbers. Lines are not wrapped by default; press `w` to toggle word wrap (the header shows `wrap` while it is on).
-- Tabs display as four spaces. Terminal control and bidirectional override characters display as `�`.
-- Binary files, invalid UTF-8, devices, and pipes are rejected. Symlinks can be followed.
-- File errors appear in the status line; expanding or collapsing folders keeps the document visible. Symbolic-link loops are rejected.
-- **Tree-sitter syntax highlighting** for JavaScript/JSX, TypeScript/TSX, Markdown, and Zig, detected from the file extension. Unsupported languages remain plain text.
-- Grammars are bundled locally: highlighting needs no network access. Markdown markup stays visible; this is a source viewer, not a preview.
-- No changes to viewed files, autosave, clipboard integration, or execution of viewed code. Tree-sitter may create cache directories under `${XDG_CACHE_HOME:-~/.cache}/scouter`.
-
-## Development
-
-```sh
-bun run dev                 # Restart on source changes
-bun run check               # Everything below, in order
-bun run typecheck           # tsrs --noEmit (Rust port of the TypeScript 7 compiler)
-bun run lint                # oxlint: correctness, suspicious and perf rules as errors (.oxlintrc.json)
-bun run format:check        # oxfmt --check; `bun run format` rewrites files
-bun test
-bun run start --help
-bun audit
-```
-
-`src/index.ts` handles CLI startup and terminal cleanup. `src/app.ts` owns the two-pane interface and keys. `src/file-tree.ts` manages lazy folder expansion; `src/explorer.ts` renders its icons and clickable, scrollable rows. `src/git.ts` asks git what changed and reads patches; `src/changes.ts` is the changed-file list and `src/diff-screen.ts` the diff view that ties them together. `src/header.ts` and `src/footer.ts` draw the pane headers and the two-row footer; `src/welcome.ts` is the empty reader screen; `src/theme.ts` holds the shared palette and `src/styled.ts` builds multi-colour text. `src/code-view.ts` owns syntax highlighting, the line-number gutter, and parser-worker cleanup. `src/files.ts` performs bounded, read-only filesystem access.
-
-Press `d` in Scouter itself to review changes to this README before committing.
-
-Bun + TypeScript + OpenTUI Core keeps the app small: no React layer or custom terminal renderer. Dependency versions and Bun's package-manager version are pinned; dependency install scripts are not trusted and should remain disabled.
+Scouter is built with Bun, TypeScript and OpenTUI. See [DEVELOPMENT.md](DEVELOPMENT.md) for how to run it from source, the checks, and how the code is laid out.
