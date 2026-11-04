@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { readDirectory, readDocument } from "../src/files";
 import { withDirectory } from "./fixtures";
 
+test("leaves out version-control folders and operating-system clutter but keeps other dotfiles", () => withDirectory(async (directory) => {
+  for (const name of [".git", ".svn", ".hg"]) await mkdir(join(directory, name));
+  for (const name of [".DS_Store", "Thumbs.db", "desktop.ini", ".AppleDouble"]) await writeFile(join(directory, name), "");
+  for (const name of [".gitignore", ".env", ".github", "git.txt", "DS_Store"]) await writeFile(join(directory, name), "");
+  expect((await readDirectory(directory)).map((entry) => entry.name)).toEqual([".env", ".github", ".gitignore", "DS_Store", "git.txt"]);
+}));
+
 test("lists directories before files, including hidden files and links", () => withDirectory(async (directory) => {
   await mkdir(join(directory, "z-folder"));
   await writeFile(join(directory, "b.txt"), "text");

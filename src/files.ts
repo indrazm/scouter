@@ -30,8 +30,14 @@ export function displayLabel(text: string): string {
   return displayText(text).replace(/[\n\t]/g, " ");
 }
 
+/**
+ * Entries that are almost never what you opened a folder to read: version-control internals and files an
+ * operating system scatters around. Other dotfiles, such as `.gitignore` or `.env`, are still listed.
+ */
+const NOISE = new Set([".git", ".hg", ".svn", ".DS_Store", ".AppleDouble", "Thumbs.db", "desktop.ini"]);
+
 export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
-  const entries = (await readdir(path, { withFileTypes: true })).map((entry): DirectoryEntry => ({
+  const entries = (await readdir(path, { withFileTypes: true })).filter((entry) => !NOISE.has(entry.name)).map((entry): DirectoryEntry => ({
     name: entry.name,
     path: join(path, entry.name),
     kind: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "link" : "other",
