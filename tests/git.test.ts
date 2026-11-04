@@ -55,7 +55,7 @@ test("lists staged and unstaged edits together with every kind of change, sorted
 
     const { changes, truncated } = await listChanges(await openRepository(directory));
     expect(truncated).toBe(false);
-    expect(changes.map((change) => change.path)).toEqual(changes.map((change) => change.path).sort());
+    expect(changes.map((change) => change.path)).toEqual(changes.map((change) => change.path).toSorted());
     expect(byPath(changes, "edited.txt")).toMatchObject({ kind: "modified", added: 3, removed: 1 });
     expect(byPath(changes, "gone.txt")).toMatchObject({ kind: "deleted", added: 0, removed: 1 });
     expect(byPath(changes, "renamed.txt")).toMatchObject({
@@ -149,7 +149,7 @@ test("treats unusual file names literally", () =>
     await writeFile(join(directory, "other.txt"), "also changed\n");
     const repo = await openRepository(directory);
     const { changes } = await listChanges(repo);
-    expect(changes.map((change) => change.path).sort()).toEqual(["other.txt", odd].sort());
+    expect(changes.map((change) => change.path).toSorted()).toEqual(["other.txt", odd].toSorted());
     const patch = await readPatch(repo, byPath(changes, odd));
     expect(patch.kind === "text" && patch.text).toContain("+changed");
     expect(patch.kind === "text" && patch.text).not.toContain("also changed");
@@ -173,7 +173,7 @@ test("never writes to the repository and never runs programs configured by it", 
 
     const repo = await openRepository(directory);
     const { changes } = await listChanges(repo);
-    for (const change of changes) await readPatch(repo, change);
+    await Promise.all(changes.map((change) => readPatch(repo, change)));
 
     const after = await stat(join(directory, ".git", "index"));
     expect(after.mtimeMs).toBe(before.mtimeMs);
@@ -252,14 +252,14 @@ test("reads every file's diff in one pass and matches each to its own file", () 
     expect(notice("mode.sh")).toContain("permissions");
     expect(notice("renamed.txt")).toContain("Renamed from moved.txt");
     // The same text, file by file, is what the single-file view shows.
-    for (const entry of all) expect(entry.patch).toEqual(await readPatch(repo, entry.change));
+    await Promise.all(all.map(async (entry) => expect(entry.patch).toEqual(await readPatch(repo, entry.change))));
   }));
 
 test("stops reading diffs past the size budget and says so for the files it skipped", () =>
   withDirectory(async (directory) => {
     const names = Array.from({ length: 6 }, (_, index) => `big${index}.txt`);
     await repository(directory, Object.fromEntries(names.map((name) => [name, "start\n"])));
-    for (const name of names) await writeFile(join(directory, name), "filler line of text\n".repeat(45_000));
+    await Promise.all(names.map((name) => writeFile(join(directory, name), "filler line of text\n".repeat(45_000))));
     const repo = await openRepository(directory);
     const all = await readAllPatches(repo, (await listChanges(repo)).changes);
     const shown = all.filter((entry) => entry.patch.kind === "text");

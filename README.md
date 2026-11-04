@@ -111,7 +111,7 @@ Scouter stays read-only here. Git works on a private copy of the index, because 
 bun run dev                 # Restart on source changes
 bun run check               # Everything below, in order
 bun run typecheck           # tsrs --noEmit (Rust port of the TypeScript 7 compiler)
-bun run lint                # oxlint
+bun run lint                # oxlint: correctness, suspicious and perf rules as errors (.oxlintrc.json)
 bun run format:check        # oxfmt --check; `bun run format` rewrites files
 bun test
 bun run start --help

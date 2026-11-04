@@ -324,7 +324,7 @@ export class DiffScreen {
   jumpHunk(direction: 1 | -1): void {
     const rows = this.hunkRows();
     const top = this.scroller.scrollTop;
-    const target = direction > 0 ? rows.find((row) => row > top) : [...rows].reverse().find((row) => row < top);
+    const target = direction > 0 ? rows.find((row) => row > top) : rows.findLast((row) => row < top);
     if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
   }
 

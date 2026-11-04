@@ -299,7 +299,12 @@ export class Footer {
       if (index >= 0) facts.splice(index, 1);
     }
     if (width() > columns) return [];
-    return facts.flatMap((fact, index) => [...(index ? [{ text: "  " }] : []), ...fact.segments]);
+    const segments: Segment[] = [];
+    for (const [index, fact] of facts.entries()) {
+      if (index) segments.push({ text: "  " });
+      segments.push(...fact.segments);
+    }
+    return segments;
   }
 
   private fitHints(columns: number): Segment[] {

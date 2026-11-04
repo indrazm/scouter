@@ -127,8 +127,9 @@ test("n and p step through the hunks of every file in order", () =>
   withDirectory(async (directory) => {
     const names = ["a.txt", "b.txt", "c.txt"];
     await createRepository(directory, Object.fromEntries(names.map((name) => [name, numbered(100)])));
-    for (const name of names)
-      await writeFile(join(directory, name), numbered(100, { 2: `${name} early`, 90: `${name} late` }));
+    await Promise.all(
+      names.map((name) => writeFile(join(directory, name), numbered(100, { 2: `${name} early`, 90: `${name} late` }))),
+    );
     await using setup = await createTestRenderer({ width: 100, height: 12 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
@@ -142,6 +143,8 @@ test("n and p step through the hunks of every file in order", () =>
     const tops: number[] = [scroller(setup).scrollTop];
     for (let step = 0; step < 6; step += 1) {
       setup.mockInput.pressKey("n");
+      // Each press is read back before the next, so the positions can be compared in order.
+      // oxlint-disable-next-line no-await-in-loop
       await setup.renderOnce();
       tops.push(scroller(setup).scrollTop);
     }
@@ -159,8 +162,11 @@ test("the highlight follows the reader as it scrolls, and a pick in the list scr
   withDirectory(async (directory) => {
     const names = ["a.txt", "b.txt", "c.txt"];
     await createRepository(directory, Object.fromEntries(names.map((name) => [name, numbered(30)])));
-    for (const name of names)
-      await writeFile(join(directory, name), numbered(30, { 2: `${name} edit one`, 28: `${name} edit two` }));
+    await Promise.all(
+      names.map((name) =>
+        writeFile(join(directory, name), numbered(30, { 2: `${name} edit one`, 28: `${name} edit two` })),
+      ),
+    );
     await using setup = await createTestRenderer({ width: 100, height: 16 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
@@ -199,7 +205,7 @@ test("the highlight follows the reader as it scrolls, and a pick in the list scr
 test("a toggles between every file and the highlighted file alone", () =>
   withDirectory(async (directory) => {
     await createRepository(directory, { "a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n" });
-    for (const name of ["a.txt", "b.txt", "c.txt"]) await writeFile(join(directory, name), `${name} changed\n`);
+    await Promise.all(["a.txt", "b.txt", "c.txt"].map((name) => writeFile(join(directory, name), `${name} changed\n`)));
     await using setup = await createTestRenderer({ width: 100, height: 20 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
@@ -272,7 +278,7 @@ test("moving through the list quickly always ends on the last file's diff", () =
   withDirectory(async (directory) => {
     const files = { "a.txt": "a\n", "b.txt": "b\n", "c.txt": "c\n", "d.txt": "d\n" };
     await createRepository(directory, files);
-    for (const name of Object.keys(files)) await writeFile(join(directory, name), `${name} changed\n`);
+    await Promise.all(Object.keys(files).map((name) => writeFile(join(directory, name), `${name} changed\n`)));
     await using setup = await createTestRenderer({ width: 100, height: 16 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
@@ -336,6 +342,10 @@ test("w wraps long diff lines to the reader's width, and d returns with the side
     expect(footer(setup).status).toContain("FILES");
   }));
 
+/** Replaces the first 60 lines of a numbered file with `word 1` ... `word 60`. */
+const rewrite = (word: string): Record<number, string> =>
+  Object.fromEntries(Array.from({ length: 60 }, (_, index) => [index + 1, `${word} ${index + 1}`]));
+
 const FAST_POLL = { diffPollMs: 40 };
 
 test("follows a commit made elsewhere without pressing r", () =>
@@ -364,7 +374,7 @@ test("keeps the highlight near its place when its file is committed", () =>
   withDirectory(async (directory) => {
     const names = ["a.txt", "b.txt", "c.txt"];
     await createRepository(directory, Object.fromEntries(names.map((name) => [name, "x\n"])));
-    for (const name of names) await writeFile(join(directory, name), `${name} changed\n`);
+    await Promise.all(names.map((name) => writeFile(join(directory, name), `${name} changed\n`)));
     await using setup = await createTestRenderer({ width: 100, height: 16 });
     await using app = new ScouterApp(setup.renderer, FAST_POLL);
     await app.open(directory);
@@ -386,8 +396,6 @@ test("keeps the highlight near its place when its file is committed", () =>
 test("redraws an edited diff in place, and leaves the reader alone while nothing changes", () =>
   withDirectory(async (directory) => {
     // 60 rewritten lines make a diff of 120 rows: the removed lines first, then the added ones.
-    const rewrite = (word: string): Record<number, string> =>
-      Object.fromEntries(Array.from({ length: 60 }, (_, index) => [index + 1, `${word} ${index + 1}`]));
     await createRepository(directory, { "long.txt": numbered(80) });
     await writeFile(join(directory, "long.txt"), numbered(80, rewrite("edited")));
     await using setup = await createTestRenderer({ width: 100, height: 14 });

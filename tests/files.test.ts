@@ -6,11 +6,22 @@ import { withDirectory } from "./fixtures";
 
 test("leaves out version-control folders and operating-system clutter but keeps other dotfiles", () =>
   withDirectory(async (directory) => {
-    for (const name of [".git", ".svn", ".hg"]) await mkdir(join(directory, name));
-    for (const name of [".DS_Store", "Thumbs.db", "desktop.ini", ".AppleDouble"])
-      await writeFile(join(directory, name), "");
-    for (const name of [".gitignore", ".env", ".github", "git.txt", "DS_Store"])
-      await writeFile(join(directory, name), "");
+    const folders = [".git", ".svn", ".hg"];
+    const files = [
+      ".DS_Store",
+      "Thumbs.db",
+      "desktop.ini",
+      ".AppleDouble",
+      ".gitignore",
+      ".env",
+      ".github",
+      "git.txt",
+      "DS_Store",
+    ];
+    await Promise.all([
+      ...folders.map((name) => mkdir(join(directory, name))),
+      ...files.map((name) => writeFile(join(directory, name), "")),
+    ]);
     expect((await readDirectory(directory)).map((entry) => entry.name)).toEqual([
       ".env",
       ".github",

@@ -66,10 +66,9 @@ export class FileTree {
 
   private async rejectLinkLoop(entry: TreeEntry): Promise<void> {
     const target = await realpath(entry.path);
-    let parent = entry.parentPath;
-    while (parent) {
-      if ((await realpath(parent)) === target) throw new Error("Cannot expand a symbolic-link loop.");
-      parent = this.nodes.get(parent)?.parentPath;
-    }
+    const parents: string[] = [];
+    for (let parent = entry.parentPath; parent; parent = this.nodes.get(parent)?.parentPath) parents.push(parent);
+    const resolved = await Promise.all(parents.map((parent) => realpath(parent)));
+    if (resolved.includes(target)) throw new Error("Cannot expand a symbolic-link loop.");
   }
 }

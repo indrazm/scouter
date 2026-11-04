@@ -129,13 +129,10 @@ async function readCapped(
   const chunks: Uint8Array[] = [];
   let length = 0;
   let truncated = false;
-  const reader = stream.getReader();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+  // Leaving the loop early cancels the stream, which is what stops git from writing more than we want.
+  for await (const value of stream) {
     length += value.length;
     if (length > limit) {
-      await reader.cancel();
       if (!partial) return { bytes: new Uint8Array(), truncated: true };
       chunks.push(value);
       truncated = true;
@@ -288,6 +285,8 @@ export async function readAllPatches(repository: Repository, changes: Change[]):
   for (const change of changes) {
     result.push({
       change,
+      // In list order, so the size budget is spent on the first files rather than on whichever finishes first.
+      // oxlint-disable-next-line no-await-in-loop
       patch: await patchFor(
         repository,
         change,

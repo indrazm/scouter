@@ -75,6 +75,8 @@ async function readBounded(file: Awaited<ReturnType<typeof open>>): Promise<Buff
   const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
   let length = 0;
   while (length < bytes.length) {
+    // Each read continues where the last one stopped, so these cannot overlap.
+    // oxlint-disable-next-line no-await-in-loop
     const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
     if (bytesRead === 0) break;
     length += bytesRead;

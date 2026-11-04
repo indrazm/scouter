@@ -54,10 +54,12 @@ export function git(directory: string, ...args: string[]): string {
 /** Initialises a repository in `directory` and, when given files, commits them as the first commit. */
 export async function createRepository(directory: string, files: Record<string, string> = {}): Promise<void> {
   git(directory, "init", "--quiet");
-  for (const [name, text] of Object.entries(files)) {
-    await mkdir(join(directory, name, ".."), { recursive: true });
-    await writeFile(join(directory, name), text);
-  }
+  await Promise.all(
+    Object.entries(files).map(async ([name, text]) => {
+      await mkdir(join(directory, name, ".."), { recursive: true });
+      await writeFile(join(directory, name), text);
+    }),
+  );
   if (Object.keys(files).length) {
     git(directory, "add", "--all");
     git(directory, "commit", "--quiet", "-m", "initial");
@@ -82,6 +84,8 @@ export async function waitForFrame(
   timeoutMs = 5000,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
+  // Polling: each pass must finish before the next frame is looked at.
+  /* oxlint-disable no-await-in-loop */
   while (true) {
     await setup.renderOnce();
     if (satisfied(setup.captureCharFrame())) return;
@@ -89,4 +93,5 @@ export async function waitForFrame(
       throw new Error(`Timed out waiting for ${description}. Last frame:\n${setup.captureCharFrame()}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
+  /* oxlint-enable no-await-in-loop */
 }

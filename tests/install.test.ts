@@ -39,10 +39,12 @@ async function upstream(directory: string, tag: string): Promise<string> {
   const files = (await run(["git", "ls-files", "--cached", "--others", "--exclude-standard"])).out
     .split("\n")
     .filter(Boolean);
-  for (const file of files) {
-    await mkdir(dirname(join(target, file)), { recursive: true });
-    await copyFile(join(root, file), join(target, file));
-  }
+  await Promise.all(
+    files.map(async (file) => {
+      await mkdir(dirname(join(target, file)), { recursive: true });
+      await copyFile(join(root, file), join(target, file));
+    }),
+  );
   git(target, "init", "--quiet", "--initial-branch=main");
   git(target, "add", "--all");
   git(target, "commit", "--quiet", "-m", "release");
