@@ -33,6 +33,17 @@ test("opens files from the browser, switches panes, and ignores editing input", 
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("browser");
   }));
 
+test("the welcome screen names the keys a new reader needs", () =>
+  withDirectory(async (directory) => {
+    await using setup = await createTestRenderer({ width: 100, height: 30 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    const frame = setup.captureCharFrame();
+    for (const expected of ["Esc", "g G", "toggle word wrap", "resize, or drag the gap"])
+      expect(frame).toContain(expected);
+  }));
+
 test("expands folders in place and collapses them without losing siblings or the document", () =>
   withDirectory(async (directory) => {
     await mkdir(join(directory, "nested"));
@@ -272,6 +283,16 @@ const footerRows = (setup: { captureCharFrame(): string }): [status: string, hin
     .filter((row) => row.trim());
   return [rows.at(-2) ?? "", rows.at(-1) ?? ""];
 };
+
+test("quit stays in the key hints on a narrow terminal", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "a.txt"), "hello\n");
+    await using setup = await createTestRenderer({ width: 40, height: 12 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "a.txt"));
+    await setup.renderOnce();
+    expect(footerRows(setup)[1]).toContain("q quit");
+  }));
 
 test("footer follows the active pane and reports file facts and scroll position", () =>
   withDirectory(async (directory) => {

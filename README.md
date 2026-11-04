@@ -1,6 +1,6 @@
 # Scouter
 
-A read-only terminal file viewer with a built-in git diff screen. Browse a folder, read any file with syntax highlighting (Markdown shows rendered, images show as pictures), and press `d` to see every change in your working tree on one page.
+A read-only terminal file viewer with built-in git changes. Browse a folder, read any file with syntax highlighting (Markdown shows rendered, images show as pictures), and press `d` to see every change in your working tree on one page.
 
 ![Scouter showing a project folder and its welcome screen](docs/screenshot.png)
 
@@ -24,10 +24,10 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 | --------------- | --------------------------- |
 | `j` `k` `h` `l` | Move, open, go back         |
 | `Tab`           | Switch panes                |
-| `d`             | Show / hide the diff screen |
+| `d`             | Show / hide changes         |
 | `n` `p`         | Next / previous change      |
 | `a`             | All files / one file        |
-| `s`             | Split / unified diff        |
+| `s`             | Split / unified diff (wide) |
 | `m`             | Markdown: rendered / source |
 | `w`             | Wrap long lines             |
 | `q`             | Quit                        |

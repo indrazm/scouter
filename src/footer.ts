@@ -65,7 +65,6 @@ function hintsFor(
           ["Tab", "diff"],
           ["s", "split"],
           other,
-          ["r", "refresh"],
           ["d", "back"],
           ["^←→", "resize"],
           ["q", "quit"],
@@ -80,7 +79,6 @@ function hintsFor(
           ...pan,
           ["g G", "top/bottom"],
           ["^d ^u", "page"],
-          ["r", "refresh"],
           ["d", "back"],
           ["q", "quit"],
         ];
@@ -331,24 +329,40 @@ export class Footer {
     return segments;
   }
 
+  /** Quit is reserved its place at the end, so it is the last hint to be dropped on a narrow terminal. */
   private fitHints(columns: number): Segment[] {
-    const segments: Segment[] = [];
-    for (const [key, action] of hintsFor(
+    const hints = hintsFor(
       this.mode,
       this.focus,
       this.wrap,
       this.diff?.scope ?? "all",
       this.document?.rendered,
       this.document?.image !== undefined,
-    )) {
-      const hint: Segment[] = [
-        { text: key, fg: theme.accentSoft },
-        { text: ` ${action}`, fg: theme.dim },
-      ];
-      const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
-      if (segmentsWidth(next) > columns) break;
-      segments.splice(0, segments.length, ...next);
-    }
-    return segments;
+    );
+    const tail = fitHintList(
+      hints.filter(([key]) => key === "q"),
+      columns,
+    );
+    const head = fitHintList(
+      hints.filter(([key]) => key !== "q"),
+      columns - (tail.length ? segmentsWidth(tail) + HINT_GAP.length : 0),
+    );
+    if (!tail.length) return head;
+    return head.length ? [...head, { text: HINT_GAP }, ...tail] : tail;
   }
+}
+
+/** The hints that fit in `columns`, in order, stopping at the first one that does not. */
+function fitHintList(hints: Hint[], columns: number): Segment[] {
+  const segments: Segment[] = [];
+  for (const [key, action] of hints) {
+    const hint: Segment[] = [
+      { text: key, fg: theme.accentSoft },
+      { text: ` ${action}`, fg: theme.dim },
+    ];
+    const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
+    if (segmentsWidth(next) > columns) break;
+    segments.splice(0, segments.length, ...next);
+  }
+  return segments;
 }

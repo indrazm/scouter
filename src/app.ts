@@ -10,7 +10,7 @@ import {
 import { stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { CodeView, languageFor } from "./code-view";
-import { DiffScreen } from "./diff-screen";
+import { DiffScreen, MIN_SPLIT_COLUMNS } from "./diff-screen";
 import { FileExplorer } from "./explorer";
 import { FileTree } from "./file-tree";
 import { Footer } from "./footer";
@@ -192,12 +192,13 @@ export class ScouterApp {
   async open(path: string): Promise<void> {
     if (this.operation === "loading" || this.renderer.isDestroyed) return;
     this.operation = "loading";
+    this.viewerHeader.setNotice(undefined);
     this.footer.setMessage("Loading…");
     try {
       await this.openPath(resolve(path));
     } catch (error) {
       if (!this.renderer.isDestroyed) {
-        this.footer.setMessage(describeError(error), true);
+        this.showError(describeError(error));
         // Nothing opened, so the click that led here belongs to the sidebar.
         this.focusBrowser();
       }
@@ -362,6 +363,7 @@ export class ScouterApp {
   private async loadDiff(then: () => void): Promise<void> {
     if (this.operation === "loading" || this.renderer.isDestroyed) return;
     this.operation = "loading";
+    this.viewerHeader.setNotice(undefined);
     this.footer.setMessage("Loading changes…");
     try {
       await this.diffScreen.load(this.rootPath());
@@ -370,11 +372,21 @@ export class ScouterApp {
         then();
       }
     } catch (error) {
-      if (!this.renderer.isDestroyed)
-        this.footer.setMessage(error instanceof GitError ? error.message : describeError(error), true);
+      if (!this.renderer.isDestroyed) this.showError(error instanceof GitError ? error.message : describeError(error));
     } finally {
       this.operation = "idle";
     }
+  }
+
+  /** Errors go to the footer and to the top of the reader, where the eye already is. */
+  private showError(message: string): void {
+    this.footer.setMessage(message, true);
+    this.viewerHeader.setNotice(message);
+  }
+
+  private toggleSplit(): void {
+    if (this.diffScreen.toggleView()) return;
+    this.footer.setMessage(`Split needs ${MIN_SPLIT_COLUMNS}+ columns.`);
   }
 
   private enterDiff(): void {
@@ -540,6 +552,7 @@ export class ScouterApp {
   };
 
   private readonly onKeyPress = (key: KeyEvent): void => {
+    this.viewerHeader.setNotice(undefined);
     if ((key.name === "q" && !key.ctrl && !key.meta) || (key.name === "c" && key.ctrl)) {
       key.preventDefault();
       this.renderer.destroy();
@@ -580,6 +593,7 @@ export class ScouterApp {
     }
     if (this.operation === "loading") {
       key.preventDefault();
+      this.footer.setMessage("Still loading. Keys work again when it finishes.");
       return;
     }
     if (this.mode === "diff" && this.handleDiffKey(key)) return;
@@ -591,7 +605,7 @@ export class ScouterApp {
   /** Keys that only mean something on the diff screen, whichever pane has focus. */
   private handleDiffKey(key: KeyEvent): boolean {
     if (key.ctrl || key.meta) return false;
-    if (key.name === "s") this.diffScreen.toggleView();
+    if (key.name === "s") this.toggleSplit();
     else if (key.name === "a") this.diffScreen.toggleScope();
     else if (key.name === "r") void this.loadDiff(() => this.onDiffChange());
     else if (key.name === "n" || key.sequence === "]") this.diffScreen.jumpHunk(1);

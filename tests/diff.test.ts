@@ -4,6 +4,7 @@ import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testin
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
+import { ChangeList } from "../src/changes";
 import { createRepository, git, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 const numbered = (count: number, replace: Record<number, string> = {}): string =>
@@ -35,10 +36,42 @@ test("d outside a git repository says so and stays on the file view", () =>
     await setup.renderOnce();
     setup.mockInput.pressKey("d");
     await waitForText(setup, "Not a git repository.");
+    expect(headerRow(setup)).toContain("Not a git repository.");
     expect(footer(setup).status).toContain("READER");
     expect(footer(setup).status).not.toContain("CHANGES");
     expect(setup.captureCharFrame()).toContain("1  hello");
   }));
+
+test("split view is refused, and the diff stays unified, when the reader is too narrow", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "a.txt": "one\n" });
+    await writeFile(join(directory, "a.txt"), "two\n");
+    await using setup = await createTestRenderer({ width: 70, height: 16 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "a.txt"));
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "CHANGES");
+    setup.mockInput.pressKey("s");
+    await waitForText(setup, "Split needs 60+ columns.");
+    expect(headerRow(setup)).not.toContain(" split ");
+  }));
+
+test("a truncated change list says how many changes it shows", async () => {
+  await using setup = await createTestRenderer({ width: 60, height: 12 });
+  const list = new ChangeList(setup.renderer, { onSelect: () => {}, onActivate: () => {} });
+  setup.renderer.root.add(list);
+  const changes = Array.from({ length: 1000 }, (_, index) => ({
+    path: `file-${index}.txt`,
+    kind: "modified" as const,
+    added: 1,
+    removed: 0,
+    binary: false,
+  }));
+  list.show(changes, undefined, true);
+  await setup.renderOnce();
+  expect(setup.captureCharFrame()).toContain("Only the first 1,000 changes are listed.");
+});
 
 test("a clean repository shows an empty state instead of a diff", () =>
   withDirectory(async (directory) => {

@@ -29,6 +29,8 @@ import { styled } from "./styled";
 import { theme } from "./theme";
 
 export type DiffView = "unified" | "split";
+/** Narrower than this, two side-by-side columns are unreadable, so split view stays off. */
+export const MIN_SPLIT_COLUMNS = 60;
 /** `all` stacks every changed file's diff in one scrolling reader; `one` shows only the highlighted file. */
 export type DiffScope = "all" | "one";
 
@@ -293,10 +295,13 @@ export class DiffScreen {
     if (repository) await closeRepository(repository);
   }
 
-  toggleView(): void {
+  /** Returns false, changing nothing, when the reader is too narrow for two side-by-side columns. */
+  toggleView(): boolean {
+    if (this.view === "unified" && this.body.width < MIN_SPLIT_COLUMNS) return false;
     this.view = this.view === "unified" ? "split" : "unified";
     for (const block of this.blocks) if (block.diff) block.diff.view = this.view;
     this.options.onChange();
+    return true;
   }
 
   setWrap(wrap: boolean): void {
@@ -372,7 +377,7 @@ export class DiffScreen {
     if (result.changes.length) {
       this.holdScroll = true;
       try {
-        this.list.show(result.changes, keep);
+        this.list.show(result.changes, keep, result.truncated);
       } finally {
         this.holdScroll = false;
       }

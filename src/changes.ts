@@ -41,6 +41,7 @@ export const statusLetters: Record<ChangeKind, { letter: string; color: string }
 export class ChangeList extends ScrollBoxRenderable {
   private rows: ChangeRow[] = [];
   private selectedIndex = -1;
+  private note?: TextRenderable;
   private readonly options: ChangeListOptions;
 
   constructor(context: RenderContext, options: ChangeListOptions) {
@@ -60,17 +61,32 @@ export class ChangeList extends ScrollBoxRenderable {
 
   /**
    * Replaces the rows. The highlight stays on `selectedPath`; if that file is gone (committed, say), it stays near
-   * where it was so the user is not thrown back to the top of the list.
+   * where it was so the user is not thrown back to the top of the list. `truncated` puts a note above the rows.
    */
-  show(changes: Change[], selectedPath?: string): void {
+  show(changes: Change[], selectedPath?: string, truncated = false): void {
     const previous = this.selectedIndex;
     for (const row of this.rows) row.box.destroyRecursively();
+    this.note?.destroyRecursively();
+    this.note = undefined;
     this.rows = changes.map((change, index) => this.createRow(change, index));
     this.selectedIndex = -1;
     const keep = changes.findIndex((change) => change.path === selectedPath);
     const nearby = Math.min(Math.max(previous, 0), changes.length - 1);
     this.selectIndex(changes.length ? (keep >= 0 ? keep : nearby) : -1);
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
+    if (truncated) this.showNote(`Only the first ${changes.length.toLocaleString("en-US")} changes are listed.`);
+  }
+
+  private showNote(text: string): void {
+    this.note = new TextRenderable(this.ctx, {
+      height: 1,
+      width: "100%",
+      flexShrink: 0,
+      wrapMode: "none",
+      selectable: false,
+      content: styled([{ text, fg: theme.modified }]),
+    });
+    this.add(this.note, 0);
   }
 
   /** Moves the highlight to `path` without announcing it, for when the reader's scrolling is what moved. */

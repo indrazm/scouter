@@ -19,6 +19,7 @@ export class PaneHeader {
   private titleText = "";
   private badgeList: HeaderBadge[] = [];
   private focused = false;
+  private notice?: string;
 
   constructor(context: RenderContext, id: string) {
     this.root = new BoxRenderable(context, {
@@ -54,10 +55,17 @@ export class PaneHeader {
     this.render();
   }
 
+  /** An error about the last action, shown in place of the title until cleared. */
+  setNotice(notice: string | undefined): void {
+    if (notice === this.notice) return;
+    this.notice = notice;
+    this.render();
+  }
+
   private render(): void {
-    this.title.content = styled([
-      { text: this.titleText, fg: this.focused ? theme.text : theme.muted, bold: this.focused },
-    ]);
+    this.title.content = this.notice
+      ? styled([{ text: this.notice, fg: theme.error, bold: true }])
+      : styled([{ text: this.titleText, fg: this.focused ? theme.text : theme.muted, bold: this.focused }]);
     const segments: Segment[] = [];
     for (const badge of this.badgeList) {
       if (segments.length) segments.push({ text: " " });

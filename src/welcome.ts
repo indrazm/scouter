@@ -8,10 +8,15 @@ const mutedColor = theme.muted;
 
 const hints: [key: string, action: string][] = [
   ["j k  ↑ ↓", "move"],
+  ["h l", "collapse or expand folder"],
   ["Enter", "open file or folder"],
   ["Tab", "switch pane"],
-  ["d", "view git changes"],
+  ["Esc", "back to the file list"],
+  ["g G", "top / bottom"],
+  ["d", "changes in a git repository"],
+  ["m", "Markdown: rendered / source"],
   ["w", "toggle word wrap"],
+  ["Ctrl+← →", "resize, or drag the gap"],
   ["q", "quit"],
 ];
 
