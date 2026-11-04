@@ -11,6 +11,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Document } from "./files";
+import { extraLanguages, registerGrammars } from "./grammars";
 
 const supportedLanguages = new Set([
   "javascript",
@@ -20,6 +21,7 @@ const supportedLanguages = new Set([
   "markdown",
   "markdown_inline",
   "zig",
+  ...extraLanguages,
 ]);
 
 /** The bundled grammar for a file, if there is one; anything else is shown as plain text. */
@@ -64,6 +66,11 @@ export class CodeView {
         property: { fg: "#82aaff" },
         operator: { fg: "#c792ea" },
         punctuation: { fg: "#b2b9c3" },
+        tag: { fg: "#c792ea" },
+        attribute: { fg: "#82aaff" },
+        escape: { fg: "#e5b880" },
+        label: { fg: "#e5b880" },
+        namespace: { fg: "#e5b880" },
         "markup.heading": { fg: "#82aaff", bold: true },
         ...Object.fromEntries(
           Array.from({ length: 6 }, (_, index) => [`markup.heading.${index + 1}`, { fg: "#82aaff", bold: true }]),
@@ -79,6 +86,7 @@ export class CodeView {
     this.client = new TreeSitterClient({
       dataPath: join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "scouter"),
     });
+    registerGrammars(this.client);
     this.syntax = { style: this.style, client: this.client };
     this.code = new CodeRenderable(renderer, {
       id: "document",

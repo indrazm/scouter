@@ -53,5 +53,5 @@ Each decision is written down in [docs/decision](docs/decision) as `NNNN-short-n
 - **Diff refresh.** About every two seconds (less often in a slow repository) while the screen is open; nothing is redrawn when nothing changed, and polling stops when you leave the screen.
 - **Git safety.** A private copy of the index (`GIT_INDEX_FILE`) preserving the original's mtime, `--no-ext-diff --no-textconv`, `core.fsmonitor=false`, and literal pathspecs.
 - **Limits.** 1,000 changed files listed, 1 MiB per file's diff and 4 MiB across the stacked view (files past that are replaced by a note pointing at `a`); text files up to 1 MiB; binary files show a note instead of a diff.
-- **Highlighting.** Tree-sitter grammars for JavaScript/JSX, TypeScript/TSX, Markdown and Zig are bundled, so no network access is needed. Tree-sitter may create cache directories under `${XDG_CACHE_HOME:-~/.cache}/scouter`.
+- **Highlighting.** Tree-sitter grammars for JavaScript/JSX, TypeScript/TSX, Markdown and Zig come with OpenTUI; JSON, CSS, HTML, Go, Rust, Python, Bash, YAML, TOML, C and Java are vendored in `grammars/` (0014). All are local, so no network access is needed. Tree-sitter may create cache directories under `${XDG_CACHE_HOME:-~/.cache}/scouter`.
 - **Rendering.** Tabs display as four spaces; control and bidirectional override characters display as `�`.

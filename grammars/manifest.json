@@ -1,0 +1,101 @@
+[
+  {
+    "filetype": "json",
+    "package": "tree-sitter-json",
+    "version": "0.24.8",
+    "license": "MIT",
+    "wasm": "json/tree-sitter-json.wasm",
+    "wasmSha256": "d2119fb98d5912719b13f9458574f8608d2d29dfbe45f6be1f860ea1fe2a2405",
+    "highlightsSha256": "0511524465b56aed122580792254e68b6abbbfde7119f1d02b135acbe278233f"
+  },
+  {
+    "filetype": "css",
+    "package": "tree-sitter-css",
+    "version": "0.25.0",
+    "license": "MIT",
+    "wasm": "css/tree-sitter-css.wasm",
+    "wasmSha256": "8a23977fe271357cce6f254ef88c9bebf3854602d8046605aef6a45c02135c59",
+    "highlightsSha256": "23f7948a3817a0d06d7120158c3bee4ec5b58daa77e524985a4738b364db17b2"
+  },
+  {
+    "filetype": "html",
+    "package": "tree-sitter-html",
+    "version": "0.23.2",
+    "license": "MIT",
+    "wasm": "html/tree-sitter-html.wasm",
+    "wasmSha256": "c48fcd82c7ea8bf943180088ba7f28c48b2bb5287874179168bf9d31e394cf85",
+    "highlightsSha256": "1ebb3811a8cdc054385b847a3aac6fbf7079faefd5b3dfab5bbad256cd5afdcf"
+  },
+  {
+    "filetype": "go",
+    "package": "tree-sitter-go",
+    "version": "0.25.0",
+    "license": "MIT",
+    "wasm": "go/tree-sitter-go.wasm",
+    "wasmSha256": "9504573f352b20be7f2f1911754d710622aedc15afff16d5ed8fb5645681aee7",
+    "highlightsSha256": "81182c986547eba7fa6316e82dfd621fb13b8fc89efac85432aee51a48ed0896"
+  },
+  {
+    "filetype": "rust",
+    "package": "tree-sitter-rust",
+    "version": "0.24.0",
+    "license": "MIT",
+    "wasm": "rust/tree-sitter-rust.wasm",
+    "wasmSha256": "f65f354215611fd94ad34134b3427eb3d58cbb745df7b6509ba722184db73d57",
+    "highlightsSha256": "0f0343107f14a7690157f51090a979eb8f8bfe4eada7c61763ddb4c54b1311d1"
+  },
+  {
+    "filetype": "python",
+    "package": "tree-sitter-python",
+    "version": "0.25.0",
+    "license": "MIT",
+    "wasm": "python/tree-sitter-python.wasm",
+    "wasmSha256": "16108b50df4ee9a30168794252ab55e7c93bfc5765d7fa0aa3e335752c515f47",
+    "highlightsSha256": "a6708f209381618e2b398972c8f1ccd892f0c064eab35a2a3f911c3e22e79a7e"
+  },
+  {
+    "filetype": "bash",
+    "package": "tree-sitter-bash",
+    "version": "0.25.1",
+    "license": "MIT",
+    "wasm": "bash/tree-sitter-bash.wasm",
+    "wasmSha256": "8292919c88a0f7d3fb31d0cd0253ca5a9531bc1ede82b0537f2c63dd8abe6a7a",
+    "highlightsSha256": "b74220d954f485b7626d2b2b61f37b522e12eb1830803e388e57dd797dc99f11"
+  },
+  {
+    "filetype": "yaml",
+    "package": "@tree-sitter-grammars/tree-sitter-yaml",
+    "version": "0.7.1",
+    "license": "MIT",
+    "wasm": "yaml/tree-sitter-yaml.wasm",
+    "wasmSha256": "e752dc21c3591df9b45692fe417d101f45d1828c28c44d79005f4066dc7e4e91",
+    "highlightsSha256": "2fbfbbd5ca0928d0a7e09e59f8f2964b14a328a7ee0ce799270d9013dcce49a0"
+  },
+  {
+    "filetype": "toml",
+    "package": "@tree-sitter-grammars/tree-sitter-toml",
+    "version": "0.7.0",
+    "license": "MIT",
+    "wasm": "toml/tree-sitter-toml.wasm",
+    "wasmSha256": "1ac6a83826c35a68857f8325e00c78f6bcbef4eb6db3931a6cf3041f76e5e09f",
+    "highlightsSha256": "2fb5c61d33a70389312254c9c392e2c5dd6313d958d6e5f8f74cadd5e0811707"
+  },
+  {
+    "filetype": "c",
+    "package": "tree-sitter-c",
+    "version": "0.24.1",
+    "license": "MIT",
+    "wasm": "c/tree-sitter-c.wasm",
+    "wasmSha256": "c852c2a85ebf2beb636aa3b0ef7f7e70458684d74f6741b20dcb296885bed9f9",
+    "highlightsSha256": "3378d854dda695b2b282b9468247524ed4271ef74af691033d2e36883379409c"
+  },
+  {
+    "filetype": "java",
+    "package": "tree-sitter-java",
+    "version": "0.23.5",
+    "license": "MIT",
+    "wasm": "java/tree-sitter-java.wasm",
+    "wasmSha256": "4fdeac4ca6ca089f06c6f7e562abcac1733cd465728cc7031ebb73c2019122c4",
+    "highlightsSha256": "576c0df8df0b116cd642140ddc508c01f9d3283582afd8581c1f35caf4d71386"
+  }
+]
