@@ -27,6 +27,10 @@ bun audit
 
 Dependency versions and Bun's package-manager version are pinned. Dependency install scripts are not trusted and should stay disabled.
 
+## Decisions
+
+Each decision is written down in [docs/decision](docs/decision) as `NNNN-short-name.md`, with Context, Decision and Consequences. Add the next number when you make one, and keep it short. The app is meant to stay minimal (see 0001).
+
 ## Layout
 
 - `src/index.ts`: CLI startup and terminal cleanup.
