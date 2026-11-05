@@ -1,22 +1,13 @@
 import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
+import { createTestRenderer } from "@opentui/core/testing";
 import { ScouterApp } from "../src/app";
 import { openRepository, listIgnored } from "../src/git";
-import { createRepository, waitForFrame, waitForText, withDirectory } from "./fixtures";
+import { palettes } from "../src/theme";
+import { channels, createRepository, textColorOf, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 const FAST_POLL = { browsePollMs: 40 };
-
-/** The red channel of the first rendered text containing `text`: higher is brighter. */
-function brightness(setup: TestRendererSetup, text: string): number {
-  const span = setup
-    .captureSpans()
-    .lines.flatMap((line) => line.spans)
-    .find((candidate) => candidate.text.includes(text));
-  if (!span) throw new Error(`No span containing ${text}.`);
-  return span.fg.buffer[0] ?? 0;
-}
 
 test("files that appear or disappear on disk show up in the list without reopening", () =>
   withDirectory(async (directory) => {
@@ -86,7 +77,8 @@ test("changed files, folders holding them, and ignored entries are marked in the
     setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("l");
     await waitForFrame(setup, (frame) => /a\.txt\s+M/.test(frame), "a.txt marked as modified");
-    expect(brightness(setup, "build/")).toBeLessThan(brightness(setup, "keep.txt"));
+    expect(textColorOf(setup, "build/")).toEqual(channels(palettes.dark.ignored));
+    expect(textColorOf(setup, "keep.txt")).toEqual(channels(palettes.dark.text));
   }));
 
 test("- makes the folder above the root and keeps the old root open in it", () =>

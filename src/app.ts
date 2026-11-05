@@ -355,7 +355,7 @@ export class ScouterApp {
 
   private styleOf(entry: TreeEntry): RowStyle {
     const path = treeRelative(this.tree.rootPath ?? entry.path, entry.path);
-    return { ...this.marks.styleOf(path), dim: this.marks.isIgnored(path) };
+    return { ...this.marks.styleOf(path), ignored: this.marks.isIgnored(path) };
   }
 
   private showImage(file: ImageFile, details: ImageDetails): void {

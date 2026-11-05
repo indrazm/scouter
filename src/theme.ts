@@ -7,6 +7,8 @@ interface Palette {
   text: string;
   muted: string;
   dim: string;
+  /** Files and folders git ignores: fainter than `dim`, so they recede behind everything tracked. */
+  ignored: string;
   accent: string;
   accentSoft: string;
   /** Text on top of a solid accent background. */
@@ -47,6 +49,7 @@ const dark: Palette = {
   text: "#d4d8de",
   muted: "#8b929c",
   dim: "#666d78",
+  ignored: "#4a505a",
   accent: "#818cf8",
   accentSoft: "#c7d2fe",
   accentInk: "#0f1117",
@@ -79,6 +82,7 @@ const light: Palette = {
   text: "#1f2328",
   muted: "#59636e",
   dim: "#7d8590",
+  ignored: "#b1b8c0",
   accent: "#4f46e5",
   accentSoft: "#4338ca",
   accentInk: "#ffffff",

@@ -20,7 +20,7 @@ interface ExplorerOptions {
 export interface RowStyle {
   letter?: string;
   color?: string;
-  dim?: boolean;
+  ignored?: boolean;
 }
 
 interface ExplorerRow {
@@ -197,7 +197,7 @@ export class FileExplorer extends ScrollBoxRenderable {
     row.text.content = entry.match
       ? matchContent(entry, entry.match, icon, selected)
       : `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
-    row.text.fg = selected ? theme.accent : row.style.dim ? theme.dim : theme.text;
+    row.text.fg = selected ? theme.accent : row.style.ignored ? theme.ignored : theme.text;
     row.mark.content = row.style.letter
       ? styled([{ text: row.style.letter, fg: row.style.color ?? theme.text, bold: true }])
       : "";

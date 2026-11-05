@@ -49,6 +49,9 @@ test.each(modes)("in %s mode text can be read on the sidebar and on the added an
   }
   // Dim text (paths, hints) is meant to recede, but must stay visible.
   expect(contrast(palette.dim, background)).toBeGreaterThanOrEqual(3);
+  // Ignored paths recede further than dim text, but must not vanish.
+  expect(contrast(palette.ignored, background)).toBeGreaterThanOrEqual(1.8);
+  expect(contrast(palette.ignored, background)).toBeLessThan(contrast(palette.dim, background));
   for (const tint of [palette.addedBg, palette.removedBg, palette.targetBg]) {
     expect(contrast(palette.text, tint)).toBeGreaterThanOrEqual(7);
   }
