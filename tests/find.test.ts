@@ -5,7 +5,6 @@ import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testin
 import { ScouterApp } from "../src/app";
 import { createRepository, markedWords, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
-/** The two footer rows: the status bar, then the key hints. */
 function footer(setup: TestRendererSetup): { status: string; hints: string } {
   const rows = setup
     .captureCharFrame()
@@ -282,7 +281,6 @@ test("text search leaves out ignored and binary files, and says when nothing mat
     await using setup = await createTestRenderer({ width: 110, height: 14 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
-    // The git marks arrive once git has answered; the modified file's status letter shows that they have.
     await waitForFrame(setup, (frame) => /tracked\.txt\s+M/.test(frame), "the git marks");
     setup.mockInput.pressKey("/");
     setup.mockInput.pressTab();

@@ -17,7 +17,6 @@ interface ExplorerOptions {
   onActivate: () => void;
 }
 
-/** How a row is marked: a status letter at its right edge, and whether its name is faded. */
 export interface RowStyle {
   letter?: string;
   color?: string;
@@ -59,10 +58,7 @@ const fileIcons: Record<string, string> = {
   ".toml": "\uf013",
 };
 
-/**
- * A text search result: the file's name and line, then the line itself with the matching part picked out, then the
- * folder. The list is narrow, so what tells results apart comes first and the folder, which is cut off first, last.
- */
+/** A text search result. The list is narrow, so what tells results apart comes first and the folder last. */
 function matchContent(entry: TreeEntry, match: NonNullable<TreeEntry["match"]>, icon: string, selected: boolean) {
   const end = match.at + match.length;
   const folder = posix.dirname(entry.name);
@@ -124,8 +120,7 @@ export class FileExplorer extends ScrollBoxRenderable {
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
         event.preventDefault();
-        // No focus change here: opening a file ends with the reader focused, and taking focus on the way would
-        // flash both pane borders. The owner focuses whichever pane the click leads to.
+        // No focus change here (0003); the owner focuses the pane the click leads to.
         this.selectIndex(index);
         this.onActivate();
       },
@@ -153,7 +148,6 @@ export class FileExplorer extends ScrollBoxRenderable {
     return { entry, box, text, mark, style };
   }
 
-  /** Paints every row again, for when the colours changed; `style` marks the rows afresh in the new colours. */
   repaint(style: (entry: TreeEntry) => RowStyle): void {
     for (const row of this.rows) row.style = style(row.entry);
     this.rows.forEach((row, index) => this.paintRow(row, index));

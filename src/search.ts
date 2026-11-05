@@ -8,15 +8,11 @@ export const MAX_MATCHES = 200;
 
 export interface IndexedEntry {
   path: string;
-  /** Path relative to the folder that was indexed, shown as the match's name. */
   relative: string;
   kind: DirectoryEntry["kind"];
 }
 
-/**
- * Every entry under `root` that `skip` does not reject, breadth first so shallow names come first. Folders are read
- * a level at a time, and the walk stops at `limit` entries.
- */
+/** Every entry under `root` that `skip` does not reject, breadth first so shallow names come first. */
 export async function indexTree(
   root: string,
   skip: (path: string) => boolean,
@@ -42,10 +38,7 @@ export async function indexTree(
   return { entries, truncated: false };
 }
 
-/**
- * Entries whose path contains every word of `query`, ignoring case. Matches on the file name come first, then
- * shorter paths, so the likeliest file is at the top. `total` counts every match, even when only some are listed.
- */
+/** Entries whose path contains every word of `query`. File-name matches and shorter paths rank first. */
 export function matchEntries(entries: IndexedEntry[], query: string): { matches: IndexedEntry[]; total: number } {
   const words = query.toLowerCase().split(/\s+/).filter(Boolean);
   if (!words.length) return { matches: [], total: 0 };
@@ -81,10 +74,8 @@ const REPORT_INTERVAL_MS = 120;
 const SNIPPET_LEAD = 40;
 const SNIPPET_LENGTH = 300;
 
-/** One line that contains the query. */
 export interface TextHit {
   path: string;
-  /** Path relative to the folder that was indexed. */
   relative: string;
   /** Counted from one. */
   line: number;
@@ -99,7 +90,6 @@ export interface TextProgress {
   hits: TextHit[];
   /** How many files the hits are in. */
   files: number;
-  /** Files read so far, out of `total`. */
   scanned: number;
   total: number;
   /** There are more matches than are listed, or the search stopped before every file was read. */
@@ -114,7 +104,7 @@ function snippetOf(line: string, index: number, length: number): Pick<TextHit, "
   return { text: line.slice(from, from + SNIPPET_LENGTH), at: index - from, length };
 }
 
-/** The lines of `text` that contain `needle` (already lower case), at most `limit`, and whether there were more. */
+/** `needle` must already be lower case. */
 function hitsIn(entry: IndexedEntry, text: string, needle: string, limit: number): { hits: TextHit[]; more: boolean } {
   const lower = text.toLowerCase();
   if (!lower.includes(needle)) return { hits: [], more: false };
@@ -136,10 +126,8 @@ function hitsIn(entry: IndexedEntry, text: string, needle: string, limit: number
 }
 
 /**
- * Finds the lines containing `query`, ignoring case, in the regular files among `entries`, reading them in order so
- * shallow files come first. Files that cannot be shown as text (binary, not UTF-8, unreadable) are skipped, and each
- * is read under the same 1 MiB limit as the reader. `onProgress` is called as results arrive and once more at the
- * end; returning false from it stops the search.
+ * Finds the lines containing `query` in the regular files among `entries`, shallow files first. Files that cannot be
+ * shown as text are skipped. `onProgress` is called as results arrive and once at the end; returning false stops it.
  */
 export async function searchText(
   entries: IndexedEntry[],

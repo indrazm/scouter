@@ -6,23 +6,17 @@ import { PLAIN_FILETYPE, markMatches } from "./match-style";
 import { scrollbarStyle } from "./styled";
 import { theme } from "./theme";
 
-/** The line a result points at is tinted so it stands out from the lines around it. */
 function targetLine(): { gutter: string; content: string } {
   return { gutter: theme.targetGutter, content: theme.targetBg };
 }
 
-/**
- * A read-only look at the file behind the highlighted text search result, scrolled so its line sits a third of the way
- * down and tinted. It is its own pane, not the open file: hiding it leaves the reader exactly as it was.
- */
+/** A read-only look at the highlighted search result's file. Its own pane, so hiding it leaves the reader as it was. */
 export class HitPreview {
   readonly root: ScrollBoxRenderable;
   private readonly code: CodeRenderable;
   private readonly lines: LineNumberRenderable;
   private document?: Document;
-  /** The words marked in the file wherever they occur. */
   private needle = "";
-  /** The line (counted from one) the preview is scrolled to. */
   private line?: number;
   /** Bumped when a newer result is asked for or the preview is hidden, so a slow read cannot show a stale file. */
   private request = 0;
@@ -68,7 +62,6 @@ export class HitPreview {
     this.root.visible = false;
   }
 
-  /** Draws the preview again in the colours of the mode now in use. */
   restyle(): void {
     this.code.syntaxStyle = this.syntax.style;
     this.code.fg = theme.text;
@@ -81,10 +74,7 @@ export class HitPreview {
     return this.root.visible;
   }
 
-  /**
-   * Shows `path` with `line` (counted from one) marked. False when the file cannot be read as text, or when a newer
-   * request or `hide` came first; the caller then shows nothing for this one.
-   */
+  /** False when the file cannot be read as text, or a newer request or `hide` came first. */
   async show(path: string, line: number, query: string): Promise<boolean> {
     const request = ++this.request;
     let document = this.document?.path === path ? this.document : undefined;

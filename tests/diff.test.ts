@@ -10,7 +10,6 @@ import { createRepository, git, waitForFrame, waitForText, watchBorder, withDire
 const numbered = (count: number, replace: Record<number, string> = {}): string =>
   `${Array.from({ length: count }, (_, index) => replace[index + 1] ?? `line ${index + 1}`).join("\n")}\n`;
 
-/** The two footer rows: the status bar, then the key hints. */
 function footer(setup: TestRendererSetup): { status: string; hints: string } {
   const rows = setup
     .captureCharFrame()

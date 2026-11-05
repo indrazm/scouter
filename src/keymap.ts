@@ -1,4 +1,3 @@
-/** One line of the key list: the keys (separated by spaces), then what they do. */
 export type KeyRow = [keys: string, action: string];
 
 /**
@@ -58,14 +57,12 @@ export const mouseRows: KeyRow[] = [
   ["Drag edge", "resize the list"],
 ];
 
-/** The width the key column is padded to, so the actions line up. */
 export const KEY_COLUMN = 15;
 
 function formatRow([keys, action]: KeyRow): string {
   return `  ${keys.padEnd(KEY_COLUMN)}${action}`;
 }
 
-/** The key list as plain text, for `--help`. */
 export function keyListText(): string {
   return [...keySections, ["Mouse", mouseRows] as const]
     .map(([title, rows]) => [title, ...rows.map(formatRow)].join("\n"))

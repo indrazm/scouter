@@ -24,12 +24,10 @@ const SCAN_DELAY_MS = 150;
 interface FileFinderHost {
   browser: FileExplorer;
   footer: Footer;
-  /** The browsed folder, or undefined before one is open. */
   rootPath(): string | undefined;
-  /** Whether git ignores this path, given relative to the browsed folder, so the index can leave it out. */
+  /** `relativePath` is relative to the browsed folder. Ignored paths are left out of the index. */
   isIgnored(relativePath: string): boolean;
   styleOf(entry: TreeEntry): RowStyle;
-  /** Shows the whole tree again with `selectedPath` highlighted. */
   showTree(selectedPath: string): void;
   /** The user chose a row. `typed` is what was typed, empty when Enter was pressed with nothing typed. */
   pick(picked: TreeEntry, typed: string): void;
@@ -41,18 +39,15 @@ interface FileFinderHost {
 /** `files` narrows by name; `text` lists the lines inside files that contain what is typed. */
 type FindMode = "files" | "text";
 
-/** What is typed, the files it can match once they are indexed, and the row to return to. */
 interface Finding {
   mode: FindMode;
   query: string;
   entries?: IndexedEntry[];
   truncated: boolean;
   returnTo?: string;
-  /** What the text search has found for the current query so far. */
   text?: TextProgress;
   /** Identifies the current text search, so a stale one stops and cannot overwrite a newer one. */
   scan: number;
-  /** Waits for typing to pause before the text search starts. */
   timer?: ReturnType<typeof setTimeout>;
 }
 
@@ -64,7 +59,6 @@ function toHitEntry({ path, relative, line, text, at, length }: TextHit): TreeEn
   return { name: relative, path, kind: "file", depth: 0, state: "collapsed", match: { line, text, at, length } };
 }
 
-/** The prompt's line at the top of the file list: what is typed, then what it matches. */
 function promptLine(query: string, status: string) {
   return styled([
     { text: "/ ", fg: theme.accent, bold: true },
@@ -77,7 +71,7 @@ function countText(total: number, noun: string, plural: string): string {
   return `${total.toLocaleString("en-US")} ${total === 1 ? noun : plural}`;
 }
 
-/** How a text search is going. Short, because the list it sits above is narrow. */
+/** Kept short because the list it sits above is narrow. */
 function textStatus(progress: TextProgress): string {
   if (!progress.done)
     return `searching ${progress.scanned.toLocaleString("en-US")}/${progress.total.toLocaleString("en-US")}`;
@@ -87,10 +81,7 @@ function textStatus(progress: TextProgress): string {
   return progress.hits.length >= MAX_TEXT_HITS ? `first ${MAX_TEXT_HITS} matches` : `${count}+`;
 }
 
-/**
- * `/` over the file list: type to narrow the files under the folder, Enter to open one, Esc to go back. Tab switches
- * between matching file names and searching the text inside the files, keeping what is typed.
- */
+/** `/` over the file list. Tab switches between matching file names and searching inside files, keeping what is typed. */
 export class FileFinder {
   readonly bar: TextRenderable;
   private finding?: Finding;
@@ -111,12 +102,10 @@ export class FileFinder {
     this.bar.visible = false;
   }
 
-  /** Draws the prompt line again, for when the colours changed. */
   restyle(): void {
     this.bar.content = promptLine(this.line.query, this.line.status);
   }
 
-  /** Whether the prompt is open, with its matches on screen in place of the tree. */
   get active(): boolean {
     return this.finding !== undefined;
   }
@@ -203,7 +192,6 @@ export class FileFinder {
     this.restyle();
   }
 
-  /** Shows what is typed, and what it matches, or the whole tree while nothing is typed. */
   private update(): void {
     const finding = this.finding;
     if (!finding) return;
@@ -256,7 +244,6 @@ export class FileFinder {
     this.host.preview(this.host.browser.selected(), finding.query);
   }
 
-  /** Closes the prompt, showing the tree with `select` (or the row it was opened from) highlighted. */
   private end(select?: string): void {
     const finding = this.finding;
     if (!finding) return;
@@ -269,7 +256,7 @@ export class FileFinder {
     this.host.showTree(select ?? finding.returnTo ?? this.host.rootPath() ?? "");
   }
 
-  /** Enter, or a click on a row: hands the highlighted row to the host, which opens it. */
+  /** Enter, or a click on a row. */
   pick(): void {
     const typed = this.finding?.query ?? "";
     const picked = this.host.browser.selected();

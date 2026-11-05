@@ -31,9 +31,7 @@ import {
 import { ImageView, describeImage, type ImageDetails } from "./image-view";
 import { GitError } from "./git";
 
-/** How often the diff screen re-reads git while it is open. */
 const DIFF_POLL_MS = 2000;
-/** How often the file list, its git marks and the open file are re-read while browsing. */
 const BROWSE_POLL_MS = 2000;
 
 export interface ScouterAppOptions {
@@ -42,7 +40,6 @@ export interface ScouterAppOptions {
   imageProtocol?: "auto" | "kitty" | "sixel" | "blocks";
 }
 
-/** What the reader holds: nothing yet, a picture, or a text file. */
 type Shown =
   | { kind: "none" }
   | { kind: "image"; title: string }
@@ -50,11 +47,10 @@ type Shown =
       kind: "text";
       document: Document;
       title: string;
-      /** Size and modification time when it was last read; undefined once the file is gone, so that is reported once. */
+      /** Undefined once the file is gone, so that is reported once. */
       stamp?: string;
     };
 
-/** Changes when a file is saved, so a changed file can be read again. */
 async function fileStamp(path: string): Promise<string> {
   const info = await stat(path);
   return `${info.mtimeMs}:${info.size}`;
@@ -62,9 +58,9 @@ async function fileStamp(path: string): Promise<string> {
 
 export class ScouterApp {
   private readonly tree = new FileTree();
-  /** What is being read from disk or git right now. Only one read at a time, so their results cannot interleave. */
+  /** Only one read at a time, so their results cannot interleave. */
   private loading?: "open" | "diff";
-  /** Identifies the current diff read, so one the user cancelled is ignored when git finally answers. */
+  /** Lets a diff read the user cancelled be ignored when git finally answers. */
   private diffToken = 0;
   private readonly browserPanel: BoxRenderable;
   private readonly browser: FileExplorer;
@@ -77,21 +73,18 @@ export class ScouterApp {
   private readonly footer: Footer;
   private welcome: BoxRenderable;
   private readonly layout: BoxRenderable;
-  /** The `?` key list, covering the panes while it is open. */
   private help: BoxRenderable;
   private readonly diffScreen: DiffScreen;
   private readonly finder: FileFinder;
   private readonly search: DocumentSearch;
   private readonly preview: HitPreview;
-  /** The file name shown in the reader's header while a text search result is previewed, else undefined. */
   private previewTitle?: string;
   private readonly watcher: BrowseWatcher;
   private readonly systemTheme: SystemThemeWatcher;
   private readonly marks = new GitMarks();
   private mode: "browse" | "diff" = "browse";
-  /** Which pane had focus when the diff screen opened, so closing it puts the user back where they were. */
   private paneBeforeDiff: "list" | "reader" = "list";
-  /** The pane holding focus; the border colors are rewritten only when it actually moves, so nothing flickers. */
+  /** Borders are rewritten only when focus actually moves, so nothing flickers. */
   private focusPane?: "list" | "reader";
   private shown: Shown = { kind: "none" };
   private wrap = false;
@@ -239,10 +232,6 @@ export class ScouterApp {
     return this.shown.kind === "image";
   }
 
-  /**
-   * The terminal went light or dark, or changed its background: everything is drawn again in the matching colours.
-   * Panes keep what they show, their scroll positions and the focus; only colours change.
-   */
   private applyTheme({ mode, background }: SystemTheme): void {
     if (this.renderer.isDestroyed) return;
     setThemeMode(mode);
@@ -282,7 +271,6 @@ export class ScouterApp {
     this.help.destroyRecursively();
     this.help = createHelp(this.renderer, background);
     this.help.visible = visible;
-    // Last in the layout, so it draws over the panes it covers.
     this.layout.add(this.help);
   }
 
@@ -300,10 +288,7 @@ export class ScouterApp {
     void this.watcher.refresh();
   }
 
-  /**
-   * Runs `task` as the one read in progress; a second one is refused. A failure goes to the footer and the reader's
-   * header, then to `onFailure`. Resolves true when the task finished.
-   */
+  /** Runs `task` as the one read in progress; a second one is refused. */
   private async runLoading(task: () => Promise<void>, onFailure?: () => void): Promise<boolean> {
     if (this.loading) {
       this.refuseWhileLoading();
@@ -342,7 +327,7 @@ export class ScouterApp {
     if (await this.reveal(path)) this.showDocument(document, stamp);
   }
 
-  /** Expands the tree to `path` and selects it. False when the app was closed meanwhile. */
+  /** False when the app was closed meanwhile. */
   private async reveal(path: string): Promise<boolean> {
     if (this.renderer.isDestroyed) return false;
     // A file outside the tree starts a new tree at its folder; one inside it just opens the folders above it.
@@ -368,7 +353,6 @@ export class ScouterApp {
     this.browser.show(entries, selectedPath, (entry) => this.styleOf(entry));
   }
 
-  /** A changed file shows its status letter, a folder holding changes a dot, and ignored entries fade. */
   private styleOf(entry: TreeEntry): RowStyle {
     const path = treeRelative(this.tree.rootPath ?? entry.path, entry.path);
     return { ...this.marks.styleOf(path), dim: this.marks.isIgnored(path) };
@@ -396,7 +380,6 @@ export class ScouterApp {
     this.finishShowing();
   }
 
-  /** Swaps the welcome screen for the reader, scrolled to the top. */
   private revealReader(): void {
     this.welcome.visible = false;
     this.viewer.visible = this.mode === "browse";
@@ -419,7 +402,6 @@ export class ScouterApp {
     });
   }
 
-  /** `m`: show the open Markdown file rendered or as source. */
   private toggleMarkdownSource(): void {
     const document = this.document;
     if (!document || !this.codeView.isMarkdown || this.mode !== "browse") return;
@@ -431,22 +413,18 @@ export class ScouterApp {
     this.renderer.requestRender();
   }
 
-  /** The pane that lists things: files while browsing, changed files in the diff screen. */
   private get list(): ScrollBoxRenderable {
     return this.mode === "diff" ? this.diffScreen.list : this.browser;
   }
 
-  /** The pane that shows the content: the open file, or the diff of the highlighted change. */
   private get reader(): ScrollBoxRenderable {
     return this.mode === "diff" ? this.diffScreen.scroller : this.viewer;
   }
 
-  /** Whether the reader has something to scroll, as opposed to the welcome screen or a message. */
   private get readerReady(): boolean {
     return this.mode === "diff" ? this.diffScreen.showingDiff : this.hasDocument;
   }
 
-  /** Brings the reader header and the footer in line with whatever the current mode shows. */
   private updateChrome(): void {
     if (this.previewTitle !== undefined) {
       this.viewerHeader.setTitle(this.previewTitle);
@@ -491,7 +469,6 @@ export class ScouterApp {
     return this.tree.rows()[0]?.path ?? process.cwd();
   }
 
-  /** `d` opens the changes, closes them, or, while they are still being read, gives up on that read. */
   private async toggleDiff(): Promise<void> {
     if (this.mode === "diff") return this.leaveDiff();
     if (this.loading === "diff") return this.cancelDiff();
@@ -504,7 +481,6 @@ export class ScouterApp {
     this.footer.setMessage("Cancelled.");
   }
 
-  /** Reads the repository, then runs `then`. Failures such as "Not a git repository." land in the footer. */
   private async loadDiff(then: () => void): Promise<void> {
     if (this.renderer.isDestroyed) return;
     if (this.loading) return this.refuseWhileLoading();
@@ -572,10 +548,7 @@ export class ScouterApp {
     void this.watcher.refresh();
   }
 
-  /**
-   * Picks up what changed on disk while browsing: folders that gained or lost entries, edits to git's view of the
-   * tree, and the open file once it has been saved. The diff screen does its own polling, so this pauses there.
-   */
+  /** The diff screen does its own polling, so this pauses there. */
   private async refreshBrowse(): Promise<void> {
     const root = this.tree.rootPath;
     if (this.renderer.isDestroyed || this.mode !== "browse" || this.loading === "open" || !root) return;
@@ -593,7 +566,6 @@ export class ScouterApp {
     }
   }
 
-  /** Reads the open text file again once it has been saved, keeping the reader where it is. */
   private async refreshDocument(): Promise<void> {
     const shown = this.shown;
     if (shown.kind !== "text" || shown.stamp === undefined) return;
@@ -619,7 +591,6 @@ export class ScouterApp {
     this.updatePosition();
   }
 
-  /** `-`: the folder above becomes the root of the tree, with the folder you were in still open in it. */
   private async goUp(): Promise<void> {
     const root = this.tree.rootPath;
     if (!root) return;
@@ -634,7 +605,6 @@ export class ScouterApp {
     });
   }
 
-  /** Opens the folders above `path` and `path` itself, and selects it. */
   private async revealFolder(path: string): Promise<void> {
     await this.loadTree(path, async () => {
       await this.tree.expandTo(path);
@@ -642,7 +612,6 @@ export class ScouterApp {
     });
   }
 
-  /** Reshapes the tree with `change`, then shows it with `selectedPath` highlighted. */
   private async loadTree(selectedPath: string, change: () => Promise<void>): Promise<void> {
     if (!(await this.runLoading(change)) || this.renderer.isDestroyed) return;
     this.renderTree(selectedPath);
@@ -668,7 +637,6 @@ export class ScouterApp {
     this.viewerHeader.setBadges(badges);
   }
 
-  /** Vim-style scroll readout: All, Top, Bot or a percentage of the scrollable distance. */
   private updatePosition(): void {
     if (!this.readerReady) return;
     const range = this.reader.scrollHeight - this.reader.viewport.height;
@@ -731,7 +699,6 @@ export class ScouterApp {
 
   private readonly onExplorerActivate = (): void => {
     if (this.renderer.isDestroyed) return;
-    // With the find prompt open a click chooses the row, as Enter does.
     if (this.finder.active) {
       this.finder.pick();
       return;
@@ -752,7 +719,6 @@ export class ScouterApp {
       this.renderer.destroy();
       return;
     }
-    // While the key list is open, any other key closes it.
     if (this.help.visible) {
       key.preventDefault();
       this.help.visible = false;
@@ -770,7 +736,6 @@ export class ScouterApp {
     else this.handleBrowserKey(key);
   };
 
-  /** What a key that means the same in every pane and mode does, if it is one. */
   private commandFor(key: KeyEvent): (() => void) | undefined {
     if (key.name === "tab") return () => this.switchPane();
     if (key.name === "escape") return () => this.escape();
@@ -781,7 +746,6 @@ export class ScouterApp {
     return isPlain(key) && !key.shift ? this.letterCommands.get(key.name) : undefined;
   }
 
-  /** Esc clears a kept search first, then goes back to the file list. */
   private escape(): void {
     if (!this.list.focused && this.search.dismiss()) return;
     this.focusBrowser();
@@ -793,7 +757,6 @@ export class ScouterApp {
     this.updateFocus();
   }
 
-  /** Keys that only mean something on the diff screen, whichever pane has focus. */
   private handleDiffKey(key: KeyEvent): boolean {
     if (!isPlain(key)) return false;
     if (key.name === "s") this.toggleSplit();
@@ -850,7 +813,6 @@ export class ScouterApp {
 
   private handleViewerKey(key: KeyEvent): void {
     if (key.meta) return;
-    // Any other Ctrl chord is not a reader key and stops here.
     if (scrollByKey(this.reader, key) || key.ctrl) return;
     if (this.mode === "browse" && this.handleSearchKeyInReader(key)) return;
     const edge = boundaryOf(key);
@@ -873,7 +835,6 @@ export class ScouterApp {
     void this.finder.start();
   }
 
-  /** Enter in the find prompt. With nothing typed it acts on the tree row, as Enter does outside the prompt. */
   private pickFound(picked: TreeEntry, typed: string): void {
     if (picked.match) {
       void this.openAt(picked.path, picked.match.line, typed);
@@ -884,7 +845,6 @@ export class ScouterApp {
     else void this.open(picked.path);
   }
 
-  /** Shows the file behind a text search result in the reader's place, or, with none, gives the reader back. */
   private async previewHit(entry: TreeEntry | undefined, query: string): Promise<void> {
     const match = entry?.match;
     if (!entry || !match) {
@@ -898,7 +858,6 @@ export class ScouterApp {
     this.updateChrome();
   }
 
-  /** The reader shows what it showed before the preview: the open file, or the welcome screen. */
   private endPreview(): void {
     if (!this.preview.active) {
       this.preview.hide();
@@ -911,7 +870,7 @@ export class ScouterApp {
     this.updateChrome();
   }
 
-  /** `/` over the open text file. Rendered Markdown has no lines to find, so it asks for source. */
+  /** Rendered Markdown has no lines to find, so it asks for source. */
   private startSearch(): void {
     if (!this.document) return;
     if (this.codeView.previewing) {
@@ -921,13 +880,11 @@ export class ScouterApp {
     this.search.start();
   }
 
-  /** Scrolls so `line` (counted from zero) sits a third of the way down the reader. */
   private scrollToLine(line: number): void {
     this.viewer.scrollTo({ x: 0, y: Math.max(0, line - Math.floor(this.viewer.viewport.height / 3)) });
     this.updatePosition();
   }
 
-  /** `o` in the diff: open the highlighted file in the reader, at the first line it changes. */
   private async openChanged(): Promise<void> {
     const target = this.diffScreen.changedFile();
     if (!target) {
@@ -938,10 +895,7 @@ export class ScouterApp {
     await this.openAt(target.path, target.line);
   }
 
-  /**
-   * Opens `path` and scrolls to `line` (counted from one). Rendered Markdown has no source lines to scroll to, so it
-   * is shown as source. With a `query`, `n` and `p` then step between the lines that match it.
-   */
+  /** `line` is counted from one. Rendered Markdown has no source lines to scroll to, so it is shown as source. */
   private async openAt(path: string, line: number, query?: string): Promise<void> {
     // Set before the file loads, so its first highlight already marks the words: changing them once that is under
     // way restarts it and the reader loses its place.

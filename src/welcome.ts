@@ -11,7 +11,6 @@ const hints: [key: string, action: string][] = [
   ["q", "quit"],
 ];
 
-/** Empty state for the reader pane, centered both ways, shown until a file is opened. */
 export function createWelcome(context: RenderContext): BoxRenderable {
   const { wordmark: wordmarkColors, accentSoft: keyColor, muted: mutedColor } = theme;
   const welcome = new BoxRenderable(context, {
@@ -23,7 +22,7 @@ export function createWelcome(context: RenderContext): BoxRenderable {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    // A short terminal shows the first hints rather than smearing them over the footer.
+    // A short terminal shows the first hints, not ones smeared over the footer.
     overflow: "hidden",
   });
   const text = (content: string, fg: string, options: { marginTop?: number } = {}): TextRenderable =>

@@ -14,7 +14,7 @@ function parserFor(filetype: string): FiletypeParserOptions {
   };
 }
 
-/** Teaches the parser worker about every vendored grammar. They load only when a file in that language opens. */
+/** Grammars load only when a file in that language opens. */
 export function registerGrammars(client: TreeSitterClient): void {
   for (const filetype of extraLanguages) client.addFiletypeParser(parserFor(filetype));
 }

@@ -8,13 +8,9 @@ interface HeadingStyle {
   bold?: boolean;
 }
 
-/** A title and its rows for each section, with a blank row between sections. */
 const LIST_ROWS = keySections.reduce((total, [, rows]) => total + 1 + rows.length, keySections.length - 1);
 
-/**
- * Every key in the app, in one box over the panes: centred while it fits, pinned to the top when it does not.
- * Any key press closes it.
- */
+/** The key list in one box over the panes. Any key press closes it. */
 export function createHelp(context: RenderContext, background: string): BoxRenderable {
   const overlay = new BoxRenderable(context, {
     id: "help",

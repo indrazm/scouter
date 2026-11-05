@@ -16,7 +16,6 @@ export interface Document {
   path: string;
   text: string;
   lineCount: number;
-  /** Only the first megabyte is loaded; the rest of the file is not shown. */
   truncated?: boolean;
 }
 
@@ -25,7 +24,6 @@ export interface ImageFile {
   bytes: Uint8Array;
 }
 
-/** Whether the file name says it is a picture Scouter can show. */
 export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
 }
@@ -48,10 +46,7 @@ export function displayLabel(text: string): string {
   return displayText(text).replace(/[\n\t]/g, " ");
 }
 
-/**
- * Entries that are almost never what you opened a folder to read: version-control internals and files an
- * operating system scatters around. Other dotfiles, such as `.gitignore` or `.env`, are still listed.
- */
+/** Version-control internals and OS litter. Other dotfiles, such as `.gitignore` or `.env`, are still listed. */
 const NOISE = new Set([".git", ".hg", ".svn", ".DS_Store", ".AppleDouble", "Thumbs.db", "desktop.ini"]);
 
 export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
@@ -69,7 +64,7 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
   return entries;
 }
 
-/** Reads a text file. Larger files show their first megabyte, cut at a whole character, and are marked as truncated. */
+/** Larger files show their first megabyte, cut at a whole character, and are marked as truncated. */
 export async function readDocument(path: string): Promise<Document> {
   const { file } = await openRegularFile(path, "Only regular text files can be viewed.");
   try {
@@ -99,7 +94,7 @@ function characterBoundary(bytes: Uint8Array, end: number): number {
 
 type OpenFile = Awaited<ReturnType<typeof open>>;
 
-/** Opens `path` for reading and refuses anything that is not a regular file, closing it again when it is refused. */
+/** Refuses anything that is not a regular file, closing it again when it does. */
 async function openRegularFile(path: string, refusal: string): Promise<{ file: OpenFile; metadata: Stats }> {
   // Non-blocking open lets us reject pipes and devices without waiting for a writer.
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
@@ -113,7 +108,7 @@ async function openRegularFile(path: string, refusal: string): Promise<{ file: O
   }
 }
 
-/** Reads a picture's bytes, under the same rules as text files: regular files only, and a size limit. */
+/** Same rules as text files: regular files only, under a size limit. */
 export async function readImage(path: string): Promise<ImageFile> {
   const { file, metadata } = await openRegularFile(path, "Only regular files can be viewed.");
   try {

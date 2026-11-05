@@ -18,7 +18,7 @@ export function describeImage(bytes: Uint8Array): ImageDetails {
   }
 }
 
-/** One picture, scaled to fit the reader. The terminal's own graphics are used when it has them, else character blocks. */
+/** The terminal's own graphics are used when it has them, else character blocks. */
 export class ImageView {
   private readonly image: ImageRenderable;
   private viewer?: ScrollBoxRenderable;
@@ -51,7 +51,7 @@ export class ImageView {
     this.image.source = undefined;
   }
 
-  /** The picture is as tall as the reader, so it never needs scrolling. Called when the reader's size changes. */
+  /** The picture is as tall as the reader, so it never needs scrolling. */
   resize(): void {
     if (!this.viewer || !this.image.visible) return;
     this.viewer.contentOptions = { flexDirection: "column", width: "100%" };

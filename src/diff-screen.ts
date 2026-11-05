@@ -32,37 +32,29 @@ export type DiffView = "unified" | "split";
 /** Narrower than this, two side-by-side columns are unreadable, so split view stays off. */
 export const MIN_SPLIT_COLUMNS = 60;
 
-/** What the rest of the interface (header, footer) needs to know about the diff screen. */
 export interface DiffState {
   repository: string;
-  /** Number of changed files listed. */
   files: number;
   truncated: boolean;
   /** The highlighted file: the one picked in the list, or the one at the top of the reader while scrolling. */
   selected?: Change;
-  /** Line counts and hunk count of everything in the reader. */
   patch?: { added: number; removed: number; hunks: number };
   view: DiffView;
   scope: DiffScope;
-  /** True when the reader holds diffs to scroll, as opposed to the empty-state message. */
   showingDiff: boolean;
 }
 
 interface DiffScreenOptions {
   syntax: { style: SyntaxStyle; client: TreeSitterClient };
-  /** Anything in `DiffState` changed. */
   onChange: () => void;
-  /** The user opened the highlighted file (Enter or a click) and wants to read its diff. */
   onActivate: () => void;
   /** The user clicked a file that has no diff to read, so the click belongs to the list. */
   onFocusList: () => void;
   /** The diff's rendered size or scroll position changed, so the position readout may be stale. */
   onLayout: () => void;
-  /** How often to re-read git while the screen is watched. */
   pollMs: number;
 }
 
-/** One file in the reader: a header band naming it, then its diff or a note about why there is none. */
 interface Block {
   change: Change;
   patch: Patch;
@@ -98,15 +90,10 @@ function diffColors() {
   };
 }
 
-/**
- * Everything the diff screen needs: the list of changed files for the sidebar, the diffs for the reader, the
- * message shown when there is nothing to diff, and the git calls behind them. It never modifies the repository.
- */
+/** Never modifies the repository. */
 export class DiffScreen {
   readonly list: ChangeList;
-  /** Reader content, holding either the scrollable diffs or a centred message. */
   readonly body: BoxRenderable;
-  /** The scrollable diffs, focusable like the file viewer. */
   readonly scroller: ScrollBoxRenderable;
   private readonly stack: BoxRenderable;
   private readonly message: BoxRenderable;
@@ -126,20 +113,14 @@ export class DiffScreen {
   private empty?: { title: string; detail: string };
   /** Fingerprint of the list on screen, so a refresh only redraws it when something actually changed. */
   private signature = "";
-  /** Fingerprint of the diffs on screen. */
   private shownKey = "";
-  /**
-   * Bumped whenever a read starts or the one in flight stops being wanted (new selection, scope change, empty list,
-   * close), so a slow read for an earlier choice cannot overwrite a newer one.
-   */
+  /** Bumped when a read starts or stops being wanted, so a slow read for an earlier choice cannot overwrite a newer one. */
   private request = 0;
-  /** True from the moment diffs are being read until they are on screen. */
   private pending = false;
   /** The user opened a file while its diff was still loading; hand focus over once it arrives. */
   private activateWhenReady = false;
   /** Set while the list is rebuilt behind the user's back, so the reader is not scrolled to the highlight. */
   private holdScroll = false;
-  /** A file to scroll to once newly built blocks have been laid out. */
   private jumpAfterLayout?: Change;
   private watching = false;
   private timer?: ReturnType<typeof setTimeout>;
@@ -212,7 +193,6 @@ export class DiffScreen {
     return this.blocks.length > 0;
   }
 
-  /** Whether there is anything listed at all, whatever the highlighted file shows. */
   get hasChanges(): boolean {
     return this.changes.length > 0;
   }
@@ -239,7 +219,7 @@ export class DiffScreen {
     };
   }
 
-  /** Draws the list and the diffs again in the colours of the mode now in use. Set the new tint first. */
+  /** Set the new tint first. */
   restyle(): void {
     this.list.repaint();
     this.scroller.scrollbarOptions = scrollbarStyle();
@@ -251,16 +231,12 @@ export class DiffScreen {
     else if (this.empty) this.showEmpty(this.empty.title, this.empty.detail);
   }
 
-  /** The tint behind each file's header band, matching the sidebar and footer. */
   setTint(color: string): void {
     this.band = color;
     for (const block of this.blocks) block.header.backgroundColor = color;
   }
 
-  /**
-   * Reads the repository containing `directory` and lists what changed. Throws a `GitError` with a message fit
-   * for the footer when there is nothing to show, such as outside a repository.
-   */
+  /** Throws a `GitError` with a message fit for the footer when there is nothing to show. */
   async load(directory: string): Promise<void> {
     const previous = this.repository;
     const repository = previous && directory === this.directory ? previous : await openRepository(directory);
@@ -279,7 +255,6 @@ export class DiffScreen {
     this.apply(result);
   }
 
-  /** Starts re-reading git in the background, so commits, staging and edits show up without pressing `r`. */
   watch(): void {
     if (this.watching) return;
     this.watching = true;
@@ -291,7 +266,6 @@ export class DiffScreen {
     clearTimeout(this.timer);
   }
 
-  /** Stops watching, forgets what was on screen and removes the private index copy. */
   async close(): Promise<void> {
     this.unwatch();
     const repository = this.repository;
@@ -324,7 +298,6 @@ export class DiffScreen {
     this.options.onChange();
   }
 
-  /** Switches between every file stacked in the reader and the highlighted file alone. */
   toggleScope(): void {
     this.scope = this.scope === "all" ? "one" : "all";
     this.shownKey = "";
@@ -339,7 +312,6 @@ export class DiffScreen {
     this.options.onChange();
   }
 
-  /** Scrolls so the next (1) or previous (-1) hunk, across every file in the reader, is at the top. */
   jumpHunk(direction: 1 | -1): void {
     const rows = this.hunkRows();
     const top = this.scroller.scrollTop;
@@ -347,10 +319,7 @@ export class DiffScreen {
     if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
   }
 
-  /**
-   * The highlighted file on disk and the first line its diff changes, from the hunk header's new-file start. Undefined
-   * for a deleted file, which has nothing on disk to open.
-   */
+  /** Undefined for a deleted file, which has nothing on disk to open. */
   changedFile(): { path: string; line: number } | undefined {
     const change = this.selected;
     if (!change || !this.repository || change.kind === "deleted") return undefined;
@@ -360,7 +329,6 @@ export class DiffScreen {
     return { path: join(this.repository.root, change.path), line: Math.max(1, Number(start ?? 1)) };
   }
 
-  /** Enter or a click on the highlighted file: hand focus to the reader, now or as soon as it has loaded. */
   openSelected(): void {
     if (this.pending) this.activateWhenReady = true;
     else if (this.blocks.length) this.options.onActivate();
@@ -378,7 +346,7 @@ export class DiffScreen {
     try {
       await this.refresh();
     } catch {
-      // A failed read, such as git being busy, keeps what is on screen; the next poll tries again.
+      // Keeps what is on screen.
     }
     // A slow repository is polled less often, so watching never keeps git busy.
     if (this.watching) this.schedule(Math.max(this.options.pollMs, (Date.now() - started) * 3));
@@ -395,7 +363,6 @@ export class DiffScreen {
     else if (this.selected) await this.reread(this.selected);
   }
 
-  /** Shows a fresh list of changes, keeping the highlight on the same file where it still exists. */
   private apply(result: ChangeSet): void {
     const keep = this.selected?.path;
     this.changes = result.changes;
@@ -424,7 +391,6 @@ export class DiffScreen {
     return this.repository?.base === "HEAD" ? "HEAD" : "an empty repository";
   }
 
-  /** The list's highlight moved, by key or click. */
   private async select(change: Change | undefined): Promise<void> {
     this.selected = change;
     if (!change || !this.repository) return;
@@ -453,7 +419,6 @@ export class DiffScreen {
     this.presentOne(change, patch);
   }
 
-  /** Reads every file's diff for the stacked view. */
   private async loadAll(): Promise<void> {
     const repository = this.repository;
     if (!repository || this.scope !== "all" || !this.changes.length) return;
@@ -492,7 +457,6 @@ export class DiffScreen {
     }
   }
 
-  /** Puts one file alone on screen, doing nothing when it is already there as it is. */
   private presentOne(change: Change, patch: Patch): void {
     const key = contentKey([{ change, patch }]);
     if (key === this.shownKey) return;
@@ -503,7 +467,7 @@ export class DiffScreen {
     this.options.onChange();
   }
 
-  /** Replaces what the reader shows. The new blocks are built before the old are removed, so nothing blinks. */
+  /** The new blocks are built before the old are removed, so nothing blinks. */
   private show(files: FilePatch[], scroll: "keep" | "top"): void {
     const previous = this.blocks;
     this.blocks = files.map((file, index) => this.createBlock(file, index));
@@ -547,7 +511,6 @@ export class DiffScreen {
     return { change, patch, root, header, ...(diff ? { diff } : {}) };
   }
 
-  /** The band naming a file: status letter, name, where it came from and lives, and its line counts. */
   private createHeader(change: Change): BoxRenderable {
     const context = this.context;
     const header = new BoxRenderable(context, {
@@ -607,7 +570,6 @@ export class DiffScreen {
     });
   }
 
-  /** The line shown instead of a diff when there is nothing textual to show. */
   private createNote(patch: Patch): TextRenderable {
     return new TextRenderable(this.context, {
       height: 1,
@@ -619,7 +581,6 @@ export class DiffScreen {
     });
   }
 
-  /** Wrapped text is laid out against the viewport width; unwrapped lines may run past it and scroll sideways. */
   private applyWrap(): void {
     for (const block of this.blocks) {
       block.root.flexShrink = this.wrap ? 1 : 0;
@@ -633,7 +594,6 @@ export class DiffScreen {
     this.scroller.scrollTo({ x: 0, y: this.scroller.scrollTop });
   }
 
-  /** Where a block starts, in rows from the top of the scrolled content. */
   private blockTop(block: Block): number {
     return block.root.y - this.stack.y;
   }
@@ -669,7 +629,6 @@ export class DiffScreen {
     this.options.onLayout();
   }
 
-  /** While the reader has focus, the sidebar highlight follows whichever file is at the top of it. */
   private followScroll(): void {
     if (this.scope !== "all" || !this.scroller.focused || !this.blocks.length) return;
     const top = this.scroller.scrollTop;

@@ -7,6 +7,7 @@ Scouter is a small, read-only terminal file viewer with a git diff screen (Bun, 
 - No editing, modes, plugins, settings or config files. If a feature needs one, the answer is usually no (0001).
 - No new dependency without a strong reason. Versions are pinned exactly; installs use `--frozen-lockfile --ignore-scripts`.
 - Prefer deleting code to adding options.
+- Comment the why, never the what. If a comment only restates the name, type or key, delete it.
 
 ## Never break these
 

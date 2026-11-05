@@ -15,9 +15,7 @@ import { scrollbarStyle, styled, type Segment } from "./styled";
 import { theme } from "./theme";
 
 interface ChangeListOptions {
-  /** The highlighted change moved (or the list emptied). */
   onSelect: (change: Change | undefined) => void;
-  /** The user asked to open the highlighted change: Enter or a click. */
   onActivate: () => void;
 }
 
@@ -42,16 +40,12 @@ const kindStyles: Record<
   untracked: { letter: "?", color: "muted" },
 };
 
-/** The letter that stands for a kind of change, and its colour in the mode in use. */
 export function statusOf(kind: ChangeKind): { letter: string; color: string } {
   const { letter, color } = kindStyles[kind];
   return { letter, color: theme[color] };
 }
 
-/**
- * Files that differ from the base (the last commit, or the empty tree before the first one): one row each, with its
- * kind, name, folder and line counts.
- */
+/** Files that differ from the base (the last commit, or the empty tree before the first one), one row each. */
 export class ChangeList extends ScrollBoxRenderable {
   private rows: ChangeRow[] = [];
   private selectedIndex = -1;
@@ -74,10 +68,7 @@ export class ChangeList extends ScrollBoxRenderable {
     this.options = options;
   }
 
-  /**
-   * Replaces the rows. The highlight stays on `selectedPath`; if that file is gone (committed, say), it stays near
-   * where it was so the user is not thrown back to the top of the list. `truncated` puts a note above the rows.
-   */
+  /** If `selectedPath` is gone (committed, say), the highlight stays near where it was rather than jumping to the top. */
   show(changes: Change[], selectedPath?: string, truncated = false): void {
     const previous = this.selectedIndex;
     for (const row of this.rows) row.box.destroyRecursively();
@@ -92,7 +83,6 @@ export class ChangeList extends ScrollBoxRenderable {
     if (truncated) this.showNote(`Only the first ${changes.length.toLocaleString("en-US")} changes are listed.`);
   }
 
-  /** Paints every row again, for when the colours changed. */
   repaint(): void {
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
     if (this.note) this.note.content = styled([{ text: this.noteText, fg: theme.modified }]);
@@ -152,8 +142,7 @@ export class ChangeList extends ScrollBoxRenderable {
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
         event.preventDefault();
-        // No focus change here: opening a diff ends with the reader focused, and taking focus on the way would
-        // flash both pane borders. The owner focuses whichever pane the click leads to.
+        // No focus change here (0003); the owner focuses the pane the click leads to.
         this.selectIndex(index);
         this.options.onActivate();
       },
@@ -201,9 +190,7 @@ export class ChangeList extends ScrollBoxRenderable {
   }
 }
 
-/**
- * Whether the change is in the index: ● staged, ◐ partly staged, ○ not staged. Untracked files have no mark.
- */
+/** ● staged, ◐ partly staged, ○ not staged. Untracked files have no mark. */
 export function indexMark(change: Change): Segment | undefined {
   if (change.staged && change.unstaged) return { text: "◐", fg: theme.modified };
   if (change.staged) return { text: "●", fg: theme.added };

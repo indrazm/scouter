@@ -263,7 +263,6 @@ test("highlights source, and resets highlighting and line numbers for plain and 
     await app.open(join(directory, "unknown.xyz"));
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain('1  const plain = "untouched";');
-    // Row 0 is the panes' top border, row 1 the header; the document starts on row 2.
     const sourceSpans = setup.captureSpans().lines[2]?.spans ?? [];
     expect(
       sourceSpans.some(
@@ -310,7 +309,6 @@ test("w toggles word wrap in either pane, keeping content inside the viewport", 
     await setup.renderOnce();
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("word19");
-    // The pane header is on the second row; the first is the panes' top border.
     expect(setup.captureCharFrame().split("\n")[1]).toContain(" wrap ");
     expect(viewer.scrollWidth).toBe(viewer.viewport.width);
     expect(setup.captureCharFrame()).toContain("2  short");

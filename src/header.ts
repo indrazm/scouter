@@ -8,10 +8,7 @@ export interface HeaderBadge {
   kind: "pill" | "quiet";
 }
 
-/**
- * One-line pane title: bright and bold when its pane is active, muted otherwise. Badges on the right
- * carry state such as wrapping.
- */
+/** One-line pane title; badges on the right carry state such as wrapping. */
 export class PaneHeader {
   readonly root: BoxRenderable;
   private readonly title: TextRenderable;
@@ -62,7 +59,6 @@ export class PaneHeader {
     this.render();
   }
 
-  /** Draws the title and badges again, for when the colours changed. */
   restyle(): void {
     this.render();
   }

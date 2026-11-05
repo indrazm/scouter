@@ -3,7 +3,6 @@ import { theme } from "./theme";
 
 /** The syntax group the words that match a search are put in; `CodeView` registers its style under this name. */
 export const MATCH_GROUP = "search.match";
-/** The chip the matches are drawn in, in the colours of the mode in use. */
 export function matchStyle(): { fg: string; bg: string; bold: boolean } {
   return { fg: theme.matchFg, bg: theme.matchBg, bold: true };
 }
@@ -17,7 +16,6 @@ export const PLAIN_FILETYPE = "scouter-plain";
 /** One file with this many matches would make a list of marks too long to be worth drawing. */
 const MAX_MARKS = 2000;
 
-/** Where `needle` occurs in `text`, ignoring case, as `[start, end)` character ranges that do not overlap. */
 export function matchRanges(text: string, needle: string): [number, number][] {
   const lower = text.toLowerCase();
   const wanted = needle.toLowerCase();
@@ -34,7 +32,6 @@ export function matchRanges(text: string, needle: string): [number, number][] {
   return ranges;
 }
 
-/** Adds the matches of `needle` to whatever the grammar highlighted. Undefined when there is nothing to mark. */
 export function markMatches(needle: string | undefined): OnHighlightCallback | undefined {
   if (!needle) return undefined;
   return (highlights, { content }) => [

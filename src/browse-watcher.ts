@@ -1,7 +1,7 @@
 interface BrowseWatcherOptions {
   pollMs: number;
   isDestroyed(): boolean;
-  /** Reads the disk and git again and redraws what changed. Must not throw. */
+  /** Must not throw. */
   refresh(): Promise<void>;
 }
 
@@ -12,13 +12,11 @@ export class BrowseWatcher {
 
   constructor(private readonly options: BrowseWatcherOptions) {}
 
-  /** Queues a refresh and resolves once it has run. */
   refresh(): Promise<void> {
     this.queue = this.queue.then(() => this.options.refresh());
     return this.queue;
   }
 
-  /** Refreshes every `pollMs` until the app is destroyed or `stop` is called. */
   start(): void {
     this.timer = setTimeout(() => {
       void this.refresh().then(() => {
@@ -28,7 +26,7 @@ export class BrowseWatcher {
     this.timer.unref?.();
   }
 
-  /** Stops polling. Resolves once the refresh in progress, if any, has finished. */
+  /** Resolves once the refresh in progress, if any, has finished. */
   stop(): Promise<void> {
     clearTimeout(this.timer);
     return this.queue;

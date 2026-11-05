@@ -3,10 +3,8 @@ import { theme, transparent } from "./theme";
 
 const MIN_SIDEBAR_COLUMNS = 24;
 const MIN_READER_COLUMNS = 28;
-/** Columns the sidebar grows or shrinks by for one Ctrl+arrow press. */
 const KEY_STEP = 2;
 
-/** The draggable edge between the file list and the reader, and the width the user chose for the list. */
 export class SidebarResizer {
   readonly handle: BoxRenderable;
   private preferredWidth?: number;

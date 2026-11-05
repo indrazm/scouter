@@ -6,7 +6,6 @@ export interface SystemTheme {
   background?: string;
 }
 
-/** The part of the renderer the watcher uses. */
 export interface ThemeSource {
   readonly themeMode: ThemeMode | null;
   on(event: "theme_mode", listener: (mode: ThemeMode) => void): unknown;
@@ -20,10 +19,9 @@ const POLL_MS = 3000;
 const QUERY_TIMEOUT_MS = 500;
 
 /**
- * Follows the terminal between light and dark. A terminal that announces the change is listened to, and once it has
- * announced one it is no longer asked. For the rest the background colour is asked for every few seconds, but only if
- * the terminal answered the first time, so one that does not answer is never asked again. `onChange` gets the first
- * reading and every later one that differs.
+ * Follows the terminal between light and dark. A terminal that announces changes is listened to; for the rest the
+ * background is polled, but only if the terminal answered the first time. `onChange` gets the first reading and every
+ * later one that differs.
  */
 export class SystemThemeWatcher {
   private last?: string;
@@ -66,10 +64,7 @@ export class SystemThemeWatcher {
     this.timer.unref?.();
   }
 
-  /**
-   * Reads the terminal's colours and reports them if they changed. True when the terminal gave a background. The
-   * renderer remembers the colours it read, so later polls make it forget them first or they would never change.
-   */
+  /** True when the terminal gave a background. The renderer caches colours, so later polls clear the cache first. */
   private async check(hint: ThemeMode | undefined, fresh: boolean): Promise<boolean> {
     const reading = ++this.latest;
     const background = await this.readBackground(fresh);

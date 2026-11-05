@@ -27,9 +27,7 @@ export interface DiffInfo {
   files: number;
   /** Whether the reader shows every file or only the highlighted one; the hint offers the other. */
   scope: DiffScope;
-  /** More files changed than are listed. */
   truncated?: boolean;
-  /** Line counts and hunks of the diff on screen, when there is one. */
   added?: number;
   removed?: number;
   hunks?: number;
@@ -159,11 +157,7 @@ function tildify(path: string): string {
   return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-/**
- * Two rows: a status bar (active pane, where you are, facts about the file or diff, scroll position) and a row
- * of key hints that follows the active pane. Content that does not fit is dropped by priority, never wrapped.
- * Browsing and the diff screen each keep their own location, facts and scroll position.
- */
+/** Content that does not fit is dropped by priority, never wrapped. Browsing and the diff screen keep their own scroll position. */
 export class Footer {
   readonly root: BoxRenderable;
   private readonly band: BoxRenderable;
@@ -223,7 +217,6 @@ export class Footer {
     this.render();
   }
 
-  /** Draws everything again, for when the colours changed. */
   restyle(): void {
     this.render();
   }
@@ -246,7 +239,7 @@ export class Footer {
     this.render();
   }
 
-  /** Where the user is while browsing. Replaces any message, which only describes the operation that just ran. */
+  /** Replaces any message, which only describes the operation that just ran. */
   setLocation(path: string): void {
     this.location = tildify(displayLabel(path));
     this.message = undefined;
@@ -275,7 +268,6 @@ export class Footer {
     this.render();
   }
 
-  /** Scroll position of whichever reader the current mode shows. */
   setPosition(position: string | undefined): void {
     if (position === this.positions[this.mode]) return;
     this.positions[this.mode] = position;
@@ -287,10 +279,7 @@ export class Footer {
     this.render();
   }
 
-  /**
-   * A `/` prompt is open: the pill and hints switch to the prompt's. What is typed shows in the file list's find bar,
-   * or, for the reader's search, as the status row's message.
-   */
+  /** What is typed shows in the file list's find bar, or, for the reader's search, as the status row's message. */
   setPrompt(prompt: FooterPrompt | undefined): void {
     if (prompt === this.prompt) return;
     this.prompt = prompt;
@@ -366,7 +355,7 @@ export class Footer {
     return facts;
   }
 
-  /** Right-hand facts in display order, dropped lowest-priority first until they fit `columns`. */
+  /** Dropped lowest-priority first until they fit `columns`. */
   private fitFacts(columns: number): Segment[] {
     const facts = this.candidateFacts();
     const width = (): number =>

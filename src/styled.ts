@@ -1,7 +1,6 @@
 import { StyledText, bg as background, bold as emphasis, fg as foreground, type TextChunk } from "@opentui/core";
 import { theme } from "./theme";
 
-/** The scrollbar every scrolling pane uses: no track, a thumb in the muted colour of the mode in use. */
 export function scrollbarStyle(): { trackOptions: { backgroundColor: string; foregroundColor: string } } {
   return { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } };
 }
@@ -13,7 +12,6 @@ export interface Segment {
   bold?: boolean;
 }
 
-/** Builds multi-colour text from plain segments, so layout code can measure what it is about to draw. */
 export function styled(segments: Segment[]): StyledText {
   return new StyledText(segments.filter((segment) => segment.text).map(chunk));
 }
@@ -31,7 +29,6 @@ export function fitEnd(text: string, columns: number): string {
   return `…${tail}`;
 }
 
-/** Keeps the start of `text`, marking the cut with an ellipsis. */
 export function fitStart(text: string, columns: number): string {
   if (columns <= 0) return "";
   if (Bun.stringWidth(text) <= columns) return text;

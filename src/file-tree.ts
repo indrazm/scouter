@@ -34,10 +34,7 @@ export class FileTree {
     return [...this.nodes.values()].filter((entry) => entry.state === "expanded").map((entry) => entry.path);
   }
 
-  /**
-   * Re-reads an expanded folder so files created, removed or retyped on disk show up, keeping the state of the
-   * entries that remain. Returns whether the folder's listing changed.
-   */
+  /** Re-reads an expanded folder, keeping the state of the entries that remain. Returns whether its listing changed. */
   async refresh(path: string): Promise<boolean> {
     const entry = this.nodes.get(path);
     if (!entry?.children || entry.state !== "expanded") return false;
@@ -71,7 +68,7 @@ export class FileTree {
     return listing(entry.children) !== before;
   }
 
-  /** Expands every folder between the tree's root and `path`, so `path` is listed. False when it is outside the tree. */
+  /** False when `path` is outside the tree. */
   async expandTo(path: string): Promise<boolean> {
     if (!this.root) return false;
     const rest = relative(this.root.path, path);
@@ -133,7 +130,6 @@ export class FileTree {
     });
   }
 
-  /** Drops an entry and everything under it from the lookup table. */
   private forget(entry: TreeEntry): void {
     this.nodes.delete(entry.path);
     entry.children?.forEach((child) => this.forget(child));

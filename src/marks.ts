@@ -5,19 +5,15 @@ import { closeRepository, listChanges, listIgnored, openRepository, type Change,
 import type { RowStyle } from "./explorer";
 import { theme } from "./theme";
 
-/**
- * What git says about the files under the folder being browsed, keyed by path relative to that folder: the changed
- * files, the folders that hold changes, and the paths git ignores.
- */
+/** What git says about the browsed folder: changed files, folders holding changes, and ignored paths, keyed relative to it. */
 export class GitMarks {
   private readonly changes = new Map<string, Change>();
   private readonly folders = new Set<string>();
   private readonly ignored = new Set<string>();
   private signature = "";
-  /** The git repository the marks come from: the browsed folder's, or none. */
   private source?: { root: string; repository?: Repository };
 
-  /** Asks git what changed under `root` and what it ignores. True when that differs from last time. */
+  /** True when what git reports differs from last time. */
   async refresh(root: string): Promise<boolean> {
     const repository = await this.repositoryFor(root);
     if (!repository) return this.update("", [], []);
@@ -30,7 +26,6 @@ export class GitMarks {
     return this.update(relative(repository.root, real), changes, ignored);
   }
 
-  /** Removes the private index copy of the repository, if one is open. */
   async close(): Promise<void> {
     const repository = this.source?.repository;
     this.source = undefined;
@@ -48,10 +43,7 @@ export class GitMarks {
     return this.source.repository;
   }
 
-  /**
-   * Replaces the marks with what git reported for a repository. `within` is where the browsed folder sits inside that
-   * repository ("" for its top). Returns false, changing nothing, when git reported the same as last time.
-   */
+  /** `within` is where the browsed folder sits inside the repository ("" for its top). False when nothing changed. */
   private update(within: string, changes: Change[], ignored: string[]): boolean {
     const next = [
       within,
@@ -76,7 +68,7 @@ export class GitMarks {
     return true;
   }
 
-  /** The letter and colour for a changed file, or a dot for a folder that holds some. `path` is relative to the browsed folder. */
+  /** A changed file gets its status letter, a folder holding changes gets a dot. */
   styleOf(path: string): RowStyle {
     const change = this.changes.get(path);
     if (change) return statusOf(change.kind);
@@ -84,7 +76,7 @@ export class GitMarks {
     return {};
   }
 
-  /** Whether git ignores the path, or any folder it sits in. `path` is relative to the browsed folder. */
+  /** Also true when a folder the path sits in is ignored. */
   isIgnored(path: string): boolean {
     if (this.ignored.has(path)) return true;
     for (let folder = posix.dirname(path); folder !== "."; folder = posix.dirname(folder)) {
@@ -94,7 +86,6 @@ export class GitMarks {
   }
 }
 
-/** `path` relative to the folder `within`, or undefined when it lies outside that folder. */
 function relativeWithin(within: string, path: string): string | undefined {
   if (!within) return path;
   return path.startsWith(`${within}/`) ? path.slice(within.length + 1) : undefined;

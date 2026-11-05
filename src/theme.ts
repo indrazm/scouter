@@ -133,18 +133,13 @@ export function brightness(hex: string): number {
   return r * 0.299 + g * 0.587 + b * 0.114;
 }
 
-/** Whether a terminal background is a dark or a light one. */
 export function modeOfBackground(hex: string): ThemeMode {
   return brightness(hex) < 0.5 ? "dark" : "light";
 }
 
-/** How far the sidebar and footer are nudged from the terminal's own background. */
 const TINT = 0.025;
 
-/**
- * The terminal's own background nudged slightly toward white (dark themes) or black (light themes), so the sidebar
- * reads as a separate surface. The palette's fallback stands in until the terminal's background is known.
- */
+/** The terminal's background nudged toward white (dark) or black (light), so the sidebar reads as its own surface. */
 export function tintedBackground(background: string | undefined): string {
   if (!background) return theme.fallbackBackground;
   const base = RGBA.fromHex(background);

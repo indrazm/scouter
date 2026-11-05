@@ -34,7 +34,6 @@ export function languageFor(path: string): string | undefined {
 
 type StyleMap = Parameters<typeof SyntaxStyle.fromStyles>[0];
 
-/** The colours of the code and Markdown in the reader, in the mode in use. */
 function syntaxStyles(): StyleMap {
   const { syntax, text } = theme;
   return {
@@ -84,7 +83,6 @@ export class CodeView {
   private document?: Document;
   /** Markdown shows rendered unless the reader asked for its source. */
   private source = false;
-  /** The words a search is looking for, marked wherever they occur in the source. */
   private needle?: string;
 
   /** `onLayout` fires when the document's rendered size changes: a new file, toggled wrapping, a resize. */
@@ -135,10 +133,7 @@ export class CodeView {
     this.preview.visible = false;
   }
 
-  /**
-   * Redraws the code and Markdown in the colours of the mode now in use. Returns the style that was replaced; destroy
-   * it once everything else that shared it (the diff, the preview) has moved to `syntax.style`.
-   */
+  /** Returns the style that was replaced; destroy it once the diff and the preview have moved to `syntax.style`. */
   restyle(): SyntaxStyle {
     const previous = this.style;
     this.style = SyntaxStyle.fromStyles(syntaxStyles(), this.renderer.nativeScene);
@@ -177,24 +172,22 @@ export class CodeView {
     this.viewer.scrollTo({ x: 0, y: this.viewer.scrollTop });
   }
 
-  /** Marks every occurrence of `query` in the file's source, or, with undefined, none. Rendered Markdown is unmarked. */
+  /** Rendered Markdown is never marked. */
   setHighlight(query: string | undefined): void {
     if (this.needle === query) return;
     this.needle = query;
     this.present();
   }
 
-  /** Whether the open file is Markdown, which can be shown rendered or as source. */
   get isMarkdown(): boolean {
     return this.document !== undefined && languageFor(this.document.path) === "markdown";
   }
 
-  /** Whether the reader currently shows rendered Markdown. */
   get previewing(): boolean {
     return this.isMarkdown && !this.source && (this.document?.lineCount ?? 0) > 0;
   }
 
-  /** Switches the open Markdown file between rendered and source. Returns whether it is now rendered. */
+  /** Returns whether the file is now rendered. */
   toggleSource(): boolean {
     if (this.isMarkdown) this.source = !this.source;
     this.present();
@@ -209,7 +202,6 @@ export class CodeView {
     return language;
   }
 
-  /** Another kind of file is on screen: show neither the source nor the preview. */
   hide(): void {
     this.document = undefined;
     this.preview.visible = false;

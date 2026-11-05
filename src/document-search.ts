@@ -4,27 +4,21 @@ import { isPlain, isTyped } from "./keys";
 
 interface DocumentSearchHost {
   footer: Footer;
-  /** The open text file's text, or undefined when no text file is open. */
   text(): string | undefined;
-  /** The first line (counted from zero) at the top of the reader. */
+  /** Lines are counted from zero throughout this file. */
   topLine(): number;
   scrollToLine(line: number): void;
-  /** The words to mark in the file wherever they occur, or undefined to mark none. */
   highlight(query: string | undefined): void;
 }
 
 interface Search {
   query: string;
-  /** Lines (counted from zero) that contain the query. */
   lines: number[];
-  /** Which of `lines` the reader is on. */
+  /** Index into `lines`. */
   at: number;
 }
 
-/**
- * `/` over the open text file: find lines as you type, Enter for the next match, Esc to close the prompt and keep the
- * matches for `n` and `p`. A second Esc, with the prompt closed, clears them.
- */
+/** `/` over the open text file. Esc closes the prompt and keeps the matches for `n` and `p`; a second Esc clears them. */
 export class DocumentSearch {
   private editing = false;
   private search?: Search;
@@ -40,10 +34,7 @@ export class DocumentSearch {
     this.show();
   }
 
-  /**
-   * Keys while the prompt is open. Enter (or Down) goes to the next match and Shift+Enter (or Up) to the previous one;
-   * Esc closes the prompt and keeps the matches. Other chords are left alone.
-   */
+  /** Keys while the prompt is open. Ctrl and Alt chords are left alone. */
   handleKey(key: KeyEvent): boolean {
     const search = this.search;
     if (!this.editing || !search || !isPlain(key)) return false;
@@ -57,7 +48,7 @@ export class DocumentSearch {
     return true;
   }
 
-  /** Starts a kept search for `query` on the line (counted from zero) where it was just found, for `n` and `p`. */
+  /** Starts a kept search, with no prompt, on the line where `query` was just found. */
   seed(query: string, line: number): void {
     const lines = this.matchingLines(query);
     this.search = { query, lines, at: Math.max(0, lines.indexOf(line)) };
@@ -66,7 +57,7 @@ export class DocumentSearch {
     this.show();
   }
 
-  /** `n` and `p`: the next or previous line the search matched, wrapping at either end. */
+  /** Wraps at either end. */
   step(direction: 1 | -1): void {
     const search = this.search;
     if (!search) {
@@ -78,7 +69,7 @@ export class DocumentSearch {
     this.show();
   }
 
-  /** The file on screen changed: look for the same words in it, without moving the reader. */
+  /** The file on screen changed: search it again without moving the reader. */
   refresh(): void {
     const search = this.search;
     if (!search) return;
@@ -87,7 +78,6 @@ export class DocumentSearch {
     this.show();
   }
 
-  /** Marks the words of the kept search, or none, after something else set them. */
   syncHighlight(): void {
     this.host.highlight(this.search?.query || undefined);
   }
@@ -112,7 +102,7 @@ export class DocumentSearch {
     this.show();
   }
 
-  /** Esc with the prompt closed: drops the kept matches. False when there were none, so Esc means what it always does. */
+  /** Esc with the prompt closed. False when there were no kept matches, so Esc means what it always does. */
   dismiss(): boolean {
     if (!this.search || this.editing) return false;
     this.clear();
@@ -120,7 +110,7 @@ export class DocumentSearch {
     return true;
   }
 
-  /** Recounts the lines matching what is typed, and jumps to the first one at or below the top of the reader. */
+  /** Jumps to the first match at or below the top of the reader. */
   private type(query: string): void {
     const search = this.search;
     if (!search) return;

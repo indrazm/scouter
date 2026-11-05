@@ -18,7 +18,6 @@ export type ChangeKind = "modified" | "added" | "deleted" | "renamed" | "typecha
 
 export interface Change {
   path: string;
-  /** Previous path, for renames. */
   oldPath?: string;
   kind: ChangeKind;
   /** Unknown (`undefined`) for untracked files, whose size git does not report. */
@@ -31,7 +30,6 @@ export interface Change {
   unstaged?: boolean;
 }
 
-/** What `--numstat` says about one file; binary files have no line counts. */
 interface LineCounts {
   added?: number;
   removed?: number;
@@ -40,17 +38,10 @@ interface LineCounts {
 
 export interface Repository {
   root: string;
-  /**
-   * What the working tree is compared against: `HEAD`, or the empty tree in a repository with no commits.
-   * Re-resolved on every `listChanges`, because the first commit turns the latter into the former.
-   */
+  /** `HEAD`, or the empty tree before the first commit; re-resolved on every `listChanges` because that commit changes it. */
   base: string;
-  /**
-   * A private copy of the repository's index. `git diff` refreshes the index it reads and rewrites it even when
-   * optional locks are disabled, so git works on this copy and the real `.git/index` is never touched.
-   */
+  /** `git diff` rewrites the index it reads even with optional locks off, so git works on this copy and never touches `.git/index`. */
   indexFile: string;
-  /** The real index, copied into `indexFile` before every refresh. */
   gitIndex: string;
   /** Tail of the git calls in flight: they share `indexFile`, so they take turns. */
   queue: Promise<unknown>;
@@ -65,10 +56,7 @@ export type Patch =
   | { kind: "text"; text: string; hunks: number; added: number; removed: number }
   | { kind: "notice"; message: string };
 
-/**
- * Git is only ever asked questions: it works on a private index copy (see `Repository.indexFile`), and
- * repository-configured helpers (external diff, text conversion, the filesystem monitor) are not run (0007).
- */
+/** Git is only asked questions: no repository-configured helpers (external diff, textconv, fsmonitor) run (0007). */
 const readOnlyOptions = [
   "--no-pager",
   "--literal-pathspecs",
@@ -101,10 +89,7 @@ interface Output {
 interface RunOptions {
   limit?: number;
   indexFile?: string;
-  /**
-   * Keep what was read when `limit` was reached, instead of discarding it. The chunk that crossed it is kept whole,
-   * so the text can run a little past `limit`.
-   */
+  /** Keep what was read at `limit`; the chunk that crossed it is kept whole, so the text can run a little past it. */
   partial?: boolean;
 }
 
@@ -164,7 +149,6 @@ async function readCapped(
   return { bytes, truncated };
 }
 
-/** Finds the repository containing `directory`, or explains why there is none. */
 export async function openRepository(directory: string): Promise<Repository> {
   let root: string;
   try {
@@ -200,7 +184,7 @@ function exclusive<T>(repository: Repository, task: () => Promise<T>): Promise<T
   return result;
 }
 
-/** Removes the private index copy. Safe to call more than once. */
+/** Safe to call more than once. */
 export async function closeRepository(repository: Repository): Promise<void> {
   const directory = dirname(repository.indexFile);
   openCopies.delete(directory);
@@ -208,9 +192,8 @@ export async function closeRepository(repository: Repository): Promise<void> {
 }
 
 /**
- * Copies the real index and gives the copy the same modification time. Git decides whether an edit made in the same
- * second as the index was written can be trusted by comparing file times with the index file's own time; a copy
- * stamped "now" would make git trust stale entries and report a changed file as unchanged.
+ * The copy keeps the original's modification time: git trusts a same-second edit by comparing file times with the
+ * index's own, so a copy stamped "now" would make it report a changed file as unchanged.
  */
 async function syncIndex(repository: Repository): Promise<void> {
   try {
@@ -222,7 +205,6 @@ async function syncIndex(repository: Repository): Promise<void> {
   }
 }
 
-/** Everything that differs from `base`: staged and unstaged edits together, plus files git does not track yet. */
 export function listChanges(repository: Repository): Promise<ChangeSet> {
   return exclusive(repository, () => readChanges(repository));
 }
@@ -259,10 +241,7 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
   return { changes: changes.slice(0, MAX_CHANGES), truncated };
 }
 
-/**
- * Paths that git ignores and that exist on disk. An ignored folder is listed once with a trailing slash, so
- * `node_modules/` costs one entry however many files it holds.
- */
+/** An ignored folder is listed once with a trailing slash, so `node_modules/` costs one entry. */
 export function listIgnored(repository: Repository): Promise<string[]> {
   return exclusive(repository, async () => {
     await syncIndex(repository);
@@ -275,7 +254,6 @@ export function listIgnored(repository: Repository): Promise<string[]> {
   });
 }
 
-/** The unified diff for one change, or a short explanation when there is nothing textual to show. */
 export async function readPatch(repository: Repository, change: Change): Promise<Patch> {
   if (change.binary) return binaryNotice;
   const text =
@@ -283,7 +261,6 @@ export async function readPatch(repository: Repository, change: Change): Promise
   return typeof text === "string" ? toPatch(change, text) : text;
 }
 
-/** Turns git's raw patch text for one file into something safe and countable to show. */
 function toPatch(change: Change, raw: string): Patch {
   if (raw.length > PATCH_LIMIT_BYTES) return tooLarge;
   const body = displayText(raw).replace(/\t/g, "    ");
@@ -302,10 +279,7 @@ export interface FilePatch {
   patch: Patch;
 }
 
-/**
- * The diff of every change, for showing them stacked. One `git diff` covers all tracked files and is split per
- * file; untracked files are read from disk. Anything over the size budget is replaced by a note.
- */
+/** One `git diff` covers all tracked files and is split per file; untracked files are read from disk. */
 export async function readAllPatches(repository: Repository, changes: Change[]): Promise<FilePatch[]> {
   let chunks = new Map<string, string>();
   let cut = false;
@@ -364,7 +338,6 @@ async function patchFor(
   return cut ? notShown : readPatch(repository, change);
 }
 
-/** Splits `git diff` output into one chunk per file, keyed by the file's current path. */
 function splitPatch(text: string, cut: boolean): Map<string, string> {
   // A cut-off read ends mid-file; drop that last, incomplete file rather than show half of it.
   const complete = cut ? text.slice(0, text.lastIndexOf("\ndiff --git ") + 1) : text;
