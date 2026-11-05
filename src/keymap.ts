@@ -12,7 +12,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
       ["j k ↑ ↓", "move"],
       ["l → Enter", "open a file or folder"],
       ["h ← Backspace", "collapse a folder or go back"],
-      ["/", "find a file by name"],
+      ["/", "find a file by name; Tab: text in files"],
       ["-", "open the folder above"],
       ["g G", "top / bottom"],
       ["Ctrl+← →", "resize the list, or drag its edge"],

@@ -1,8 +1,11 @@
 import { realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
 import { readDirectory, type DirectoryEntry } from "./files";
+import type { TextHit } from "./search";
 
 export interface TreeEntry extends DirectoryEntry {
+  /** Set on a row that stands for one matching line of a file, in the list of text search results. */
+  match?: Pick<TextHit, "line" | "text" | "at" | "length">;
   depth: number;
   parentPath?: string;
   state: "collapsed" | "expanded";

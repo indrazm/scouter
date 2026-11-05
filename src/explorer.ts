@@ -6,7 +6,7 @@ import {
   type KeyEvent,
   type RenderContext,
 } from "@opentui/core";
-import { extname } from "node:path";
+import { extname, posix } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
 import { handleListKey } from "./keys";
@@ -58,6 +58,27 @@ const fileIcons: Record<string, string> = {
   ".yml": "\uf013",
   ".toml": "\uf013",
 };
+
+/**
+ * A text search result: the file's name and line, then the line itself with the matching part picked out, then the
+ * folder. The list is narrow, so what tells results apart comes first and the folder, which is cut off first, last.
+ */
+function matchContent(entry: TreeEntry, match: NonNullable<TreeEntry["match"]>, icon: string, selected: boolean) {
+  const end = match.at + match.length;
+  const folder = posix.dirname(entry.name);
+  return styled([
+    {
+      text: `${icon} ${displayLabel(posix.basename(entry.name))}`,
+      fg: selected ? theme.accent : theme.text,
+      bold: selected,
+    },
+    { text: `:${match.line}  `, fg: theme.dim },
+    { text: displayLabel(match.text.slice(0, match.at)), fg: theme.muted },
+    { text: displayLabel(match.text.slice(match.at, end)), fg: theme.accentSoft, bold: true },
+    { text: displayLabel(match.text.slice(end)), fg: theme.muted },
+    ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
+  ]);
+}
 
 export class FileExplorer extends ScrollBoxRenderable {
   private rows: ExplorerRow[] = [];
@@ -172,7 +193,9 @@ export class FileExplorer extends ScrollBoxRenderable {
       : entry.kind === "link"
         ? "\uf0c1"
         : (fileIcons[extname(entry.name).toLowerCase()] ?? "\uf016");
-    row.text.content = `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
+    row.text.content = entry.match
+      ? matchContent(entry, entry.match, icon, selected)
+      : `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
     row.text.fg = selected ? theme.accent : row.style.dim ? theme.dim : theme.text;
     row.mark.content = row.style.letter
       ? styled([{ text: row.style.letter, fg: row.style.color ?? theme.text, bold: true }])

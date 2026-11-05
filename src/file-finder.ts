@@ -4,9 +4,22 @@ import type { TreeEntry } from "./file-tree";
 import type { Footer } from "./footer";
 import { isPlain, isTyped } from "./keys";
 import { treeRelative } from "./marks";
-import { indexTree, matchEntries, type IndexedEntry } from "./search";
+import {
+  MAX_TEXT_HITS,
+  indexTree,
+  matchEntries,
+  searchText,
+  type IndexedEntry,
+  type TextHit,
+  type TextProgress,
+} from "./search";
 import { styled } from "./styled";
 import { theme } from "./theme";
+
+/** Fewer characters than this would match most lines of most files, so the search waits for more. */
+const MIN_TEXT_QUERY = 2;
+/** Typing keeps going without a scan starting after every key; it starts once the keys pause. */
+const SCAN_DELAY_MS = 150;
 
 interface FileFinderHost {
   browser: FileExplorer;
@@ -23,16 +36,30 @@ interface FileFinderHost {
   isDestroyed(): boolean;
 }
 
+/** `files` narrows by name; `text` lists the lines inside files that contain what is typed. */
+type FindMode = "files" | "text";
+
 /** What is typed, the files it can match once they are indexed, and the row to return to. */
 interface Finding {
+  mode: FindMode;
   query: string;
   entries?: IndexedEntry[];
   truncated: boolean;
   returnTo?: string;
+  /** What the text search has found for the current query so far. */
+  text?: TextProgress;
+  /** Identifies the current text search, so a stale one stops and cannot overwrite a newer one. */
+  scan: number;
+  /** Waits for typing to pause before the text search starts. */
+  timer?: ReturnType<typeof setTimeout>;
 }
 
 function toTreeEntry(entry: IndexedEntry): TreeEntry {
   return { name: entry.relative, path: entry.path, kind: entry.kind, depth: 0, state: "collapsed" };
+}
+
+function toHitEntry({ path, relative, line, text, at, length }: TextHit): TreeEntry {
+  return { name: relative, path, kind: "file", depth: 0, state: "collapsed", match: { line, text, at, length } };
 }
 
 /** The prompt's line at the top of the file list: what is typed, then what it matches. */
@@ -44,7 +71,24 @@ function promptLine(query: string, status: string) {
   ]);
 }
 
-/** `/` over the file list: type to narrow the files under the folder, Enter to open one, Esc to go back. */
+function countText(total: number, noun: string, plural: string): string {
+  return `${total.toLocaleString("en-US")} ${total === 1 ? noun : plural}`;
+}
+
+/** How a text search is going. Short, because the list it sits above is narrow. */
+function textStatus(progress: TextProgress): string {
+  if (!progress.done)
+    return `searching ${progress.scanned.toLocaleString("en-US")}/${progress.total.toLocaleString("en-US")}`;
+  if (!progress.hits.length) return "no matches";
+  const count = countText(progress.hits.length, "match", "matches");
+  if (!progress.truncated) return count;
+  return progress.hits.length >= MAX_TEXT_HITS ? `first ${MAX_TEXT_HITS} matches` : `${count}+`;
+}
+
+/**
+ * `/` over the file list: type to narrow the files under the folder, Enter to open one, Esc to go back. Tab switches
+ * between matching file names and searching the text inside the files, keeping what is typed.
+ */
 export class FileFinder {
   readonly bar: TextRenderable;
   private finding?: Finding;
@@ -71,7 +115,13 @@ export class FileFinder {
   async start(): Promise<void> {
     const root = this.host.rootPath();
     if (!root || this.finding) return;
-    const finding: Finding = { query: "", truncated: false, returnTo: this.host.browser.selected()?.path };
+    const finding: Finding = {
+      mode: "files",
+      query: "",
+      truncated: false,
+      returnTo: this.host.browser.selected()?.path,
+      scan: 0,
+    };
     this.finding = finding;
     this.host.footer.setPrompt("files");
     this.update();
@@ -79,6 +129,7 @@ export class FileFinder {
     if (this.host.isDestroyed() || this.finding !== finding) return;
     finding.entries = entries;
     finding.truncated = truncated;
+    this.restartScan(finding);
     this.update();
   }
 
@@ -89,6 +140,7 @@ export class FileFinder {
     key.preventDefault();
     if (key.name === "escape") this.end();
     else if (key.name === "return") this.pick();
+    else if (key.name === "tab") this.switchMode(finding);
     else if (key.name === "backspace") this.type(finding.query.slice(0, -1));
     else if (key.name === "up" || key.name === "down") this.host.browser.moveSelection(key.name === "up" ? -1 : 1);
     else if (isTyped(key)) this.type(finding.query + key.sequence);
@@ -96,37 +148,94 @@ export class FileFinder {
   }
 
   private type(query: string): void {
-    if (!this.finding) return;
-    this.finding.query = query;
+    const finding = this.finding;
+    if (!finding) return;
+    finding.query = query;
+    this.restartScan(finding);
     this.update();
   }
 
-  /** Shows what is typed, and the files it matches, or the whole tree while nothing is typed. */
+  private switchMode(finding: Finding): void {
+    finding.mode = finding.mode === "files" ? "text" : "files";
+    this.host.footer.setPrompt(finding.mode);
+    this.restartScan(finding);
+    this.update();
+  }
+
+  /** Drops any text search under way and, in text mode, starts a new one once typing pauses. */
+  private restartScan(finding: Finding): void {
+    finding.scan += 1;
+    clearTimeout(finding.timer);
+    finding.text = undefined;
+    if (finding.mode !== "text" || !finding.entries || finding.query.length < MIN_TEXT_QUERY) return;
+    finding.timer = setTimeout(() => void this.scan(finding), SCAN_DELAY_MS);
+    finding.timer.unref?.();
+  }
+
+  private async scan(finding: Finding): Promise<void> {
+    const { entries, query, scan } = finding;
+    if (!entries) return;
+    await searchText(entries, query, (progress) => {
+      if (this.host.isDestroyed() || this.finding !== finding || finding.scan !== scan) return false;
+      finding.text = progress;
+      this.update();
+      return true;
+    });
+  }
+
+  /** Shows what is typed, and what it matches, or the whole tree while nothing is typed. */
   private update(): void {
     const finding = this.finding;
     if (!finding) return;
     this.bar.visible = true;
-    if (!finding.query) {
-      this.bar.content = promptLine(finding.query, "type to find a file");
-      this.host.showTree(this.host.browser.selected()?.path ?? finding.returnTo ?? this.host.rootPath() ?? "");
-      return;
-    }
-    if (!finding.entries) {
-      this.bar.content = promptLine(finding.query, "indexing…");
+    if (!finding.query) this.showEmptyPrompt(finding);
+    else if (!finding.entries) this.showIndexing(finding);
+    else if (finding.mode === "files") this.showNames(finding, finding.entries);
+    else this.showText(finding);
+  }
+
+  private showEmptyPrompt(finding: Finding): void {
+    const hint =
+      finding.mode === "files" ? "type to find a file, Tab to search inside files" : "type to search inside files";
+    this.bar.content = promptLine(finding.query, hint);
+    this.host.showTree(this.host.browser.selected()?.path ?? finding.returnTo ?? this.host.rootPath() ?? "");
+  }
+
+  private showIndexing(finding: Finding): void {
+    this.bar.content = promptLine(finding.query, "indexing…");
+    this.host.browser.show([], "");
+  }
+
+  private showNames(finding: Finding, entries: IndexedEntry[]): void {
+    const { matches, total } = matchEntries(entries, finding.query);
+    const rows = matches.map(toTreeEntry);
+    this.host.browser.show(rows, rows[0]?.path ?? "", (row) => this.host.styleOf(row));
+    const count = total === 0 ? "no matches" : countText(total, "match", "matches");
+    this.bar.content = promptLine(finding.query, finding.truncated ? `${count}, first 20,000 files` : count);
+  }
+
+  private showText(finding: Finding): void {
+    const progress = finding.text;
+    if (finding.query.length < MIN_TEXT_QUERY || !progress) {
+      const status = finding.query.length < MIN_TEXT_QUERY ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…";
+      this.bar.content = promptLine(finding.query, status);
       this.host.browser.show([], "");
       return;
     }
-    const { matches, total } = matchEntries(finding.entries, finding.query);
-    const rows = matches.map(toTreeEntry);
-    this.host.browser.show(rows, rows[0]?.path ?? "", (row) => this.host.styleOf(row));
-    const count = total === 0 ? "no matches" : `${total.toLocaleString("en-US")} ${total === 1 ? "match" : "matches"}`;
-    this.bar.content = promptLine(finding.query, finding.truncated ? `${count}, first 20,000 files` : count);
+    const rows = progress.hits.map(toHitEntry);
+    // The highlight stays on the file it was on while results keep arriving.
+    const kept = this.host.browser.selected()?.path;
+    const selected = rows.some((row) => row.path === kept) ? kept : rows[0]?.path;
+    this.host.browser.show(rows, selected ?? "", (row) => this.host.styleOf(row));
+    this.bar.content = promptLine(finding.query, textStatus(progress));
   }
 
   /** Closes the prompt, showing the tree with `select` (or the row it was opened from) highlighted. */
   private end(select?: string): void {
     const finding = this.finding;
     if (!finding) return;
+    finding.scan += 1;
+    clearTimeout(finding.timer);
     this.finding = undefined;
     this.bar.visible = false;
     this.host.footer.setPrompt(undefined);

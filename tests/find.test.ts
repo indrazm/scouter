@@ -190,3 +190,93 @@ test("a kept search runs again on the next file opened instead of keeping the ol
     setup.mockInput.pressKey("n");
     await waitForText(setup, "50  hit only");
   }));
+
+test("Tab in the find prompt searches the text inside files, and Enter opens the line, ready for n and p", () =>
+  withDirectory(async (directory) => {
+    await mkdir(join(directory, "src"));
+    await writeFile(join(directory, "src", "app.ts"), numbered(60, { 5: "const needle = 1;", 40: "needle again" }));
+    await writeFile(join(directory, "other.txt"), "nothing to see\n");
+    await using setup = await createTestRenderer({ width: 170, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+
+    setup.mockInput.pressKey("/");
+    await setup.renderOnce();
+    expect(footer(setup).status).toContain("FIND");
+    setup.mockInput.pressTab();
+    await setup.renderOnce();
+    expect(footer(setup).status).toContain("TEXT");
+    await setup.mockInput.typeText("NEEDLE");
+    await waitForText(setup, "2 matches");
+    expect(setup.captureCharFrame()).toContain("app.ts:5  const needle = 1;");
+    expect(setup.captureCharFrame()).toContain("app.ts:40  needle again");
+    expect(setup.captureCharFrame()).not.toContain("other.txt");
+
+    setup.mockInput.pressArrow("down");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "40  needle again");
+    expect(footer(setup).status).toContain("READER");
+    await waitForText(setup, "/NEEDLE  2 of 2");
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "/NEEDLE  1 of 2");
+    expect(setup.captureCharFrame()).toContain("5  const needle = 1;");
+  }));
+
+test("Tab again goes back to file names with what was typed kept, and a single character waits for more", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "needle-notes.txt"), "text\n");
+    await writeFile(join(directory, "plain.txt"), "plain\n");
+    await using setup = await createTestRenderer({ width: 110, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("n");
+    setup.mockInput.pressTab();
+    await waitForText(setup, "type 2+ characters");
+    setup.mockInput.pressTab();
+    await waitForText(setup, "FIND");
+    await waitForText(setup, "needle-notes.txt");
+    expect(footer(setup).status).toContain("FIND");
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "FILES");
+    expect(footer(setup).status).not.toContain("FIND");
+  }));
+
+test("text search leaves out ignored and binary files, and says when nothing matches", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { ".gitignore": "secret.txt\n", "tracked.txt": "one\n" });
+    await writeFile(join(directory, "tracked.txt"), "needle\n");
+    await writeFile(join(directory, "secret.txt"), "needle in an ignored file\n");
+    await writeFile(join(directory, "blob.bin"), Buffer.from([0, 110, 101, 101, 100, 108, 101]));
+    await using setup = await createTestRenderer({ width: 110, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    // The git marks arrive once git has answered; the modified file's status letter shows that they have.
+    await waitForFrame(setup, (frame) => /tracked\.txt\s+M/.test(frame), "the git marks");
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "1 match");
+    expect(setup.captureCharFrame()).toContain("tracked.txt:1");
+    expect(setup.captureCharFrame()).not.toContain("secret.txt");
+    await setup.mockInput.typeText("zzz");
+    await waitForText(setup, "no matches");
+  }));
+
+test("a text result in a Markdown file opens its source at that line, not the rendered page", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "guide.md"), `# Title\n\n${numbered(40, { 30: "the needle is here" })}`);
+    await using setup = await createTestRenderer({ width: 110, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "guide.md:32");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "32  the needle is here");
+    expect(footer(setup).status).toContain("READER");
+  }));

@@ -47,6 +47,15 @@ export class DocumentSearch {
     return true;
   }
 
+  /** Starts a kept search for `query` on the line (counted from zero) where it was just found, for `n` and `p`. */
+  seed(query: string, line: number): void {
+    const lines = this.matchingLines(query);
+    this.search = { query, lines, at: Math.max(0, lines.indexOf(line)) };
+    this.editing = false;
+    this.host.footer.setPrompt(undefined);
+    this.show();
+  }
+
   /** `n` and `p`: the next or previous line the search matched, wrapping at either end. */
   step(direction: 1 | -1): void {
     const search = this.search;

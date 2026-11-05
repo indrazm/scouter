@@ -863,6 +863,10 @@ export class ScouterApp {
 
   /** Enter in the find prompt. With nothing typed it acts on the tree row, as Enter does outside the prompt. */
   private pickFound(picked: TreeEntry, typed: string): void {
+    if (picked.match) {
+      void this.openAt(picked.path, picked.match.line, typed);
+      return;
+    }
     if (!typed.trim()) return this.openSelected("toggle");
     if (picked.kind === "directory") void this.revealFolder(picked.path);
     else void this.open(picked.path);
@@ -892,9 +896,19 @@ export class ScouterApp {
       return;
     }
     this.leaveDiff();
-    await this.open(target.path);
-    if (this.renderer.isDestroyed || this.document?.path !== target.path) return;
-    this.scrollToLine(target.line - 1);
+    await this.openAt(target.path, target.line);
+  }
+
+  /**
+   * Opens `path` and scrolls to `line` (counted from one). Rendered Markdown has no source lines to scroll to, so it
+   * is shown as source. With a `query`, `n` and `p` then step between the lines that match it.
+   */
+  private async openAt(path: string, line: number, query?: string): Promise<void> {
+    await this.open(path);
+    if (this.renderer.isDestroyed || this.document?.path !== path) return;
+    if (this.codeView.previewing) this.toggleMarkdownSource();
+    this.scrollToLine(line - 1);
+    if (query) this.search.seed(query, line - 1);
   }
 
   private workerClosed = Promise.resolve();

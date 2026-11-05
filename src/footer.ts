@@ -37,15 +37,23 @@ export interface DiffInfo {
 
 type Hint = [key: string, action: string];
 
-/** Which `/` prompt is open: finding a file in the list, or searching the open file. */
-export type FooterPrompt = "files" | "reader";
+/** Which `/` prompt is open: finding a file by name, searching text in every file, or searching the open file. */
+export type FooterPrompt = "files" | "text" | "reader";
 
-const promptLabels: Record<FooterPrompt, string> = { files: "FIND", reader: "SEARCH" };
+const promptLabels: Record<FooterPrompt, string> = { files: "FIND", text: "TEXT", reader: "SEARCH" };
 const promptHints: Record<FooterPrompt, Hint[]> = {
   files: [
     ["type", "filter"],
     ["↑ ↓", "move"],
     ["Enter", "open"],
+    ["Tab", "text"],
+    ["Esc", "cancel"],
+  ],
+  text: [
+    ["type", "search"],
+    ["↑ ↓", "move"],
+    ["Enter", "open"],
+    ["Tab", "files"],
     ["Esc", "cancel"],
   ],
   reader: [
