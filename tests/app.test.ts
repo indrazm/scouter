@@ -1,10 +1,20 @@
 import { expect, test } from "bun:test";
-import { BoxRenderable, CodeRenderable, ScrollBoxRenderable } from "@opentui/core";
+import { BoxRenderable, CodeRenderable, RGBA, ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
-import { solidPng, waitForFrame, waitForText, withDirectory } from "./fixtures";
+import { FileExplorer } from "../src/explorer";
+import { theme } from "../src/theme";
+import {
+  borderColorOf,
+  createRepository,
+  solidPng,
+  waitForFrame,
+  waitForText,
+  watchBorder,
+  withDirectory,
+} from "./fixtures";
 
 test("opens files from the browser, switches panes, and ignores editing input", () =>
   withDirectory(async (directory) => {
@@ -40,8 +50,31 @@ test("the welcome screen names the keys a new reader needs", () =>
     await app.open(directory);
     await setup.renderOnce();
     const frame = setup.captureCharFrame();
-    for (const expected of ["Esc", "g G", "toggle word wrap", "resize, or drag the gap"])
+    for (const expected of ["Enter", "find a file", "changes in a git repository", "Press ? for every key."])
       expect(frame).toContain(expected);
+  }));
+
+test("? shows every key, and any key closes it again", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "a.txt"), "hello\n");
+    await using setup = await createTestRenderer({ width: 100, height: 30 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("?");
+    await setup.renderOnce();
+    for (const expected of [
+      "Browse",
+      "find a file by name",
+      "search the file",
+      "next / previous hunk",
+      "this help (any key closes)",
+    ])
+      expect(setup.captureCharFrame()).toContain(expected);
+    setup.mockInput.pressKey("j");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Select a file");
+    expect(setup.captureCharFrame()).not.toContain("next / previous hunk");
   }));
 
 test("expands folders in place and collapses them without losing siblings or the document", () =>
@@ -217,7 +250,8 @@ test("highlights source, and resets highlighting and line numbers for plain and 
     await app.open(join(directory, "unknown.xyz"));
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain('1  const plain = "untouched";');
-    const sourceSpans = setup.captureSpans().lines[1]?.spans ?? [];
+    // Row 0 is the panes' top border, row 1 the header; the document starts on row 2.
+    const sourceSpans = setup.captureSpans().lines[2]?.spans ?? [];
     expect(
       sourceSpans.some(
         (span) => span.text.includes("const plain") && span.fg.toInts().slice(0, 3).join(",") === "212,216,222",
@@ -263,7 +297,8 @@ test("w toggles word wrap in either pane, keeping content inside the viewport", 
     await setup.renderOnce();
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("word19");
-    expect(setup.captureCharFrame().split("\n")[0]).toContain(" wrap ");
+    // The pane header is on the second row; the first is the panes' top border.
+    expect(setup.captureCharFrame().split("\n")[1]).toContain(" wrap ");
     expect(viewer.scrollWidth).toBe(viewer.viewport.width);
     expect(setup.captureCharFrame()).toContain("2  short");
 
@@ -272,7 +307,7 @@ test("w toggles word wrap in either pane, keeping content inside the viewport", 
     await setup.renderOnce();
     await setup.renderOnce();
     expect(setup.captureCharFrame()).not.toContain("word19");
-    expect(setup.captureCharFrame().split("\n")[0]).not.toContain(" wrap ");
+    expect(setup.captureCharFrame().split("\n")[1]).not.toContain(" wrap ");
     expect(viewer.scrollWidth).toBeGreaterThan(viewer.viewport.width);
   }));
 
@@ -349,36 +384,35 @@ test("footer shows errors without losing the open file, and drops facts before t
     expect(setup.captureCharFrame()).toContain("1  hello");
   }));
 
-test("the pane without focus is dimmed, but the welcome screen is not", () =>
+const accentInts = RGBA.fromHex(theme.accent).toInts().join(",");
+const transparentInts = RGBA.fromValues(0, 0, 0, 0).toInts().join(",");
+
+test("the focused pane has an indigo left border, and nothing is dimmed", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "alpha.txt"), "alpha content\n");
     await using setup = await createTestRenderer({ width: 90, height: 14 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
     await setup.renderOnce();
-    const brightness = (text: string, row?: number): number => {
-      const lines = setup.captureSpans().lines;
-      const span = (row === undefined ? lines : lines.slice(row, row + 1))
-        .flatMap((line) => line.spans)
-        .find((candidate) => candidate.text.includes(text));
-      if (!span) throw new Error(`No span containing ${text}.`);
-      return span.fg.buffer[0] ?? 0;
-    };
-    const welcomeBrightness = brightness("Select a file");
-    // Its text is a light indigo (red channel ~199); a 50% dim would pull it below 110.
-    expect(welcomeBrightness).toBeGreaterThan(150);
+    expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(accentInts);
+    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(transparentInts);
 
     setup.mockInput.pressKey("j");
     setup.mockInput.pressEnter();
     await waitForText(setup, "1  alpha content");
     await setup.renderOnce();
-    const sidebarDimmed = brightness("alpha.txt", 1);
-    const readerActive = brightness("alpha content", 1);
+    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(accentInts);
+    expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(transparentInts);
 
     setup.mockInput.pressTab();
     await setup.renderOnce();
-    expect(brightness("alpha.txt", 1)).toBeGreaterThan(sidebarDimmed);
-    expect(brightness("alpha content", 1)).toBeLessThan(readerActive);
+    expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(accentInts);
+    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(transparentInts);
+    for (const id of ["browser-panel", "viewer-panel"]) {
+      const panel = setup.renderer.root.findDescendantById(id);
+      if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
+      expect(panel.opacity).toBe(1);
+    }
   }));
 
 /** Left-clicks the first sidebar row whose text contains `name`. */
@@ -389,7 +423,7 @@ async function clickRow(setup: Awaited<ReturnType<typeof createTestRenderer>>, n
   await setup.mockMouse.click(lines[y]!.indexOf(name) + 1, y);
 }
 
-test("clicking a file from the reader opens it without flashing the panes' opacity", () =>
+test("clicking a file from the reader opens it without flashing the pane borders", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "a.txt"), "alpha\n");
     await writeFile(join(directory, "b.txt"), "beta\n");
@@ -400,21 +434,9 @@ test("clicking a file from the reader opens it without flashing the panes' opaci
     await setup.renderOnce();
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
 
-    // Pulsing either pane on the way (sidebar bright, reader dim, then back) reads as a flash in a real terminal.
+    // Pulsing either border on the way (sidebar indigo, then the reader again) reads as a flash in a real terminal.
     const writes: string[] = [];
-    for (const id of ["browser-panel", "viewer-panel"]) {
-      const panel = setup.renderer.root.findDescendantById(id);
-      if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
-      let opacity = panel.opacity;
-      Object.defineProperty(panel, "opacity", {
-        configurable: true,
-        get: () => opacity,
-        set: (value: number) => {
-          if (value !== opacity) writes.push(`${id} -> ${value}`);
-          opacity = value;
-        },
-      });
-    }
+    for (const id of ["browser-panel", "viewer-panel"]) watchBorder(setup.renderer.root, id, writes);
     await clickRow(setup, "b.txt");
     await waitForText(setup, "1  beta");
     await setup.renderOnce();
@@ -484,4 +506,93 @@ test("shows a picture in the reader with its size and format, and returns to tex
     await app.open(join(directory, "plain.txt"));
     await waitForText(setup, "1  after the picture");
     expect(setup.captureCharFrame()).not.toContain("32×16");
+  }));
+
+test("space, Page Down and b page through the reader and back again", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "long.txt");
+    await writeFile(path, Array.from({ length: 80 }, (_, index) => `content-${index + 1}`).join("\n"));
+    await using setup = await createTestRenderer({ width: 100, height: 15 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await setup.renderOnce();
+    const viewer = setup.renderer.root.findDescendantById("viewer");
+    if (!(viewer instanceof ScrollBoxRenderable)) throw new Error("No viewer mounted.");
+    expect(viewer.scrollTop).toBe(0);
+    setup.mockInput.pressKey(" ");
+    await setup.renderOnce();
+    const afterSpace = viewer.scrollTop;
+    expect(afterSpace).toBeGreaterThan(3);
+    setup.mockInput.pressKey("[6~");
+    await setup.renderOnce();
+    expect(viewer.scrollTop).toBeGreaterThan(afterSpace);
+    setup.mockInput.pressKey("b");
+    await setup.renderOnce();
+    expect(viewer.scrollTop).toBe(afterSpace);
+    setup.mockInput.pressKey("[5~");
+    await setup.renderOnce();
+    expect(viewer.scrollTop).toBe(0);
+    expect(setup.captureCharFrame()).toContain("1  content-1");
+  }));
+
+test("a file larger than a megabyte says so in the reader header and the footer", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "big.log");
+    await writeFile(path, Array.from({ length: 120_000 }, (_, index) => `entry ${index}`).join("\n"));
+    await using setup = await createTestRenderer({ width: 120, height: 12 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await waitForText(setup, "first 1 MiB");
+    expect(setup.captureCharFrame().split("\n")[1]).toContain("first 1 MiB");
+    expect(setup.captureCharFrame()).toContain("lines");
+    expect(setup.captureCharFrame()).toContain("1  entry 0");
+  }));
+
+test("moving through files keeps working while the changes are read", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "a.txt": "a\n", "b.txt": "b\n" });
+    await writeFile(join(directory, "a.txt"), "a changed\n");
+    await using setup = await createTestRenderer({ width: 90, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    setup.mockInput.pressKey("j");
+    setup.mockInput.pressKey("j");
+    const browser = setup.renderer.root.findDescendantById("browser");
+    if (!(browser instanceof FileExplorer)) throw new Error("No file list mounted.");
+    expect(browser.selected()?.name).toBe("b.txt");
+    await waitForText(setup, "a changed");
+    expect(setup.captureCharFrame()).not.toContain("Still loading");
+  }));
+
+test("d cancels changes that are still being read, and the cancelled read never opens them", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "a.txt": "a\n" });
+    await writeFile(join(directory, "a.txt"), "a changed\n");
+    await using setup = await createTestRenderer({ width: 90, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "Cancelled.");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).not.toContain("a changed");
+    expect(footerRows(setup)[0]).toContain("FILES");
+  }));
+
+test("opening a file waits until the changes have been read", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "a.txt": "a\n" });
+    await writeFile(join(directory, "a.txt"), "a changed\n");
+    await using setup = await createTestRenderer({ width: 90, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    setup.mockInput.pressKey("j");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "Still loading");
+    await waitForText(setup, "CHANGES");
   }));

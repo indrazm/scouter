@@ -79,7 +79,9 @@ test("a repository without commits compares against the empty tree", () =>
     const repo = await openRepository(directory);
     expect(repo.base).not.toBe("HEAD");
     const { changes } = await listChanges(repo);
-    expect(changes).toEqual([{ path: "first.txt", kind: "added", added: 1, removed: 0, binary: false }]);
+    expect(changes).toEqual([
+      { path: "first.txt", kind: "added", added: 1, removed: 0, binary: false, staged: true, unstaged: false },
+    ]);
   }));
 
 test("reads unified patches, synthesises one for untracked files and explains what cannot be shown", () =>

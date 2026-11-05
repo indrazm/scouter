@@ -13,7 +13,7 @@ Scouter is a small, read-only terminal file viewer with a git diff screen (Bun, 
 - **Read-only.** Nothing writes to a viewed file or repository. Git runs on a private copy of the index with `--no-ext-diff --no-textconv`, `core.fsmonitor=false` and literal pathspecs (0007). Do not run git against the real index.
 - **Untrusted folders.** Text from files and patches goes through `displayText` before it is drawn. The installed launcher keeps `--config=/dev/null --no-env-file` (0008).
 - **Installer safety.** `install.sh` only touches what carries its markers (`.scouter-installer`, `# scouter-launcher`). It never edits shell configuration. Keep `main "$@"; exit $?` on one line.
-- **No focus change on click** in the file or change list. It makes both panes flash (0003). Dimming depends on whether there is something to read, not on which file is highlighted.
+- **No focus change on click** in the file or change list. It makes both pane borders flash (0003). The active pane is marked by an indigo border, never by dimming (0021).
 
 ## Before you finish
 

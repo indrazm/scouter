@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { BoxRenderable, ScrollBoxRenderable } from "@opentui/core";
+import { ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { ScouterApp } from "../src/app";
 import { ChangeList } from "../src/changes";
-import { createRepository, git, waitForFrame, waitForText, withDirectory } from "./fixtures";
+import { createRepository, git, waitForFrame, waitForText, watchBorder, withDirectory } from "./fixtures";
 
 const numbered = (count: number, replace: Record<number, string> = {}): string =>
   `${Array.from({ length: count }, (_, index) => replace[index + 1] ?? `line ${index + 1}`).join("\n")}\n`;
@@ -19,7 +19,8 @@ function footer(setup: TestRendererSetup): { status: string; hints: string } {
   return { status: rows.at(-2) ?? "", hints: rows.at(-1) ?? "" };
 }
 
-const headerRow = (setup: TestRendererSetup): string => setup.captureCharFrame().split("\n")[0] ?? "";
+/** The pane headers sit on the second row; the first is the panes' top border. */
+const headerRow = (setup: TestRendererSetup): string => setup.captureCharFrame().split("\n")[1] ?? "";
 
 function scroller(setup: TestRendererSetup): ScrollBoxRenderable {
   const found = setup.renderer.root.findDescendantById("diff-scroller");
@@ -482,7 +483,7 @@ test("stops reading git once the diff screen is closed", () =>
     await waitForText(setup, "No changes");
   }));
 
-test("moving through the list or clicking a file never pulses the panes' opacity", () =>
+test("moving through the list or clicking a file never pulses the pane borders", () =>
   withDirectory(async (directory) => {
     await createRepository(directory, { "a.txt": "a\n", "b.bin": "text\n", "c.txt": "c\n" });
     await writeFile(join(directory, "a.txt"), "a changed\n");
@@ -496,21 +497,9 @@ test("moving through the list or clicking a file never pulses the panes' opacity
     await waitForText(setup, "a changed");
 
     const writes: string[] = [];
-    for (const id of ["browser-panel", "viewer-panel"]) {
-      const panel = setup.renderer.root.findDescendantById(id);
-      if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
-      let opacity = panel.opacity;
-      Object.defineProperty(panel, "opacity", {
-        configurable: true,
-        get: () => opacity,
-        set: (value: number) => {
-          if (value !== opacity) writes.push(`${id} -> ${value}`);
-          opacity = value;
-        },
-      });
-    }
+    for (const id of ["browser-panel", "viewer-panel"]) watchBorder(setup.renderer.root, id, writes);
 
-    // A file with no text diff in between must not make the reader brighten and dim again.
+    // A file with no text diff in between must not make the reader's border flash.
     setup.mockInput.pressKey("j");
     await waitForText(setup, "Binary file");
     setup.mockInput.pressKey("j");
@@ -528,4 +517,27 @@ test("moving through the list or clicking a file never pulses the panes' opacity
     await setup.renderOnce();
     expect(writes).toEqual([]);
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("diff-scroller");
+  }));
+
+test("marks each change as staged, partly staged, not staged, or untracked in the list", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "staged.txt": "one\n", "partly.txt": "one\n", "loose.txt": "one\n" });
+    await writeFile(join(directory, "staged.txt"), "two\n");
+    git(directory, "add", "staged.txt");
+    await writeFile(join(directory, "partly.txt"), "two\n");
+    git(directory, "add", "partly.txt");
+    await writeFile(join(directory, "partly.txt"), "three\n");
+    await writeFile(join(directory, "loose.txt"), "two\n");
+    await writeFile(join(directory, "new.txt"), "fresh\n");
+    await using setup = await createTestRenderer({ width: 100, height: 16 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "4 files");
+    const frame = setup.captureCharFrame();
+    expect(frame).toMatch(/M ● +staged\.txt/);
+    expect(frame).toMatch(/M ◐ +partly\.txt/);
+    expect(frame).toMatch(/M ○ +loose\.txt/);
+    expect(frame).toMatch(/\? +new\.txt/);
   }));

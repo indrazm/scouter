@@ -25,6 +25,10 @@ export interface Change {
   added?: number;
   removed?: number;
   binary: boolean;
+  /** The index differs from the base: the change is (at least partly) staged. Untracked files are never staged. */
+  staged?: boolean;
+  /** The working tree differs from the index: the change is (at least partly) not staged. */
+  unstaged?: boolean;
 }
 
 export interface Repository {
@@ -216,14 +220,23 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
   repository.base = await resolveBase(repository.root);
   await syncIndex(repository);
   const indexFile = repository.indexFile;
-  const [statuses, numbers, untracked] = await Promise.all([
+  const [statuses, numbers, untracked, staged, unstaged] = await Promise.all([
     run(repository.root, ["diff", repository.base, "--name-status", "-z", ...diffOptions], { indexFile }),
     run(repository.root, ["diff", repository.base, "--numstat", "-z", ...diffOptions], { indexFile }),
     run(repository.root, ["ls-files", "--others", "--exclude-standard", "-z"], { indexFile }),
+    run(repository.root, ["diff", "--cached", repository.base, "--name-only", "-z", ...diffOptions], { indexFile }),
+    run(repository.root, ["diff", "--name-only", "-z", ...diffOptions], { indexFile }),
   ]);
   const counts = parseNumstat(numbers.text);
+  const stagedPaths = new Set(splitZ(staged.text));
+  const unstagedPaths = new Set(splitZ(unstaged.text));
   const changes = [
-    ...parseNameStatus(statuses.text, counts),
+    ...parseNameStatus(statuses.text, counts).map((change) =>
+      Object.assign(change, {
+        staged: stagedPaths.has(change.path),
+        unstaged: unstagedPaths.has(change.path),
+      }),
+    ),
     ...splitZ(untracked.text).map((path): Change => ({
       path,
       kind: "untracked",
@@ -233,6 +246,22 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
   changes.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
   const truncated = changes.length > MAX_CHANGES || statuses.truncated || numbers.truncated || untracked.truncated;
   return { changes: changes.slice(0, MAX_CHANGES), truncated };
+}
+
+/**
+ * Paths that git ignores and that exist on disk. An ignored folder is listed once with a trailing slash, so
+ * `node_modules/` costs one entry however many files it holds.
+ */
+export function listIgnored(repository: Repository): Promise<string[]> {
+  return exclusive(repository, async () => {
+    await syncIndex(repository);
+    const output = await run(
+      repository.root,
+      ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"],
+      { indexFile: repository.indexFile },
+    );
+    return splitZ(output.text);
+  });
 }
 
 /** The unified diff for one change, or a short explanation when there is nothing textual to show. */
@@ -375,6 +404,7 @@ async function untrackedPatch(repository: Repository, change: Change): Promise<s
     const message = error instanceof Error ? displayText(error.message) : "Unable to read this file.";
     return { kind: "notice", message: `New file: ${message}` };
   }
+  if (document.truncated) return { kind: "notice", message: "New file: File is too large (limit: 1 MiB)." };
   if (document.lineCount === 0) return { kind: "notice", message: "New empty file." };
   const lines = document.text.replace(/\n$/, "").split("\n");
   return [

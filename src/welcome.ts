@@ -8,15 +8,9 @@ const mutedColor = theme.muted;
 
 const hints: [key: string, action: string][] = [
   ["j k  ↑ ↓", "move"],
-  ["h l", "collapse or expand folder"],
   ["Enter", "open file or folder"],
-  ["Tab", "switch pane"],
-  ["Esc", "back to the file list"],
-  ["g G", "top / bottom"],
+  ["/", "find a file"],
   ["d", "changes in a git repository"],
-  ["m", "Markdown: rendered / source"],
-  ["w", "toggle word wrap"],
-  ["Ctrl+← →", "resize, or drag the gap"],
   ["q", "quit"],
 ];
 
@@ -31,6 +25,8 @@ export function createWelcome(context: RenderContext): BoxRenderable {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
+    // A short terminal shows the first hints rather than smearing them over the footer.
+    overflow: "hidden",
   });
   const text = (content: string, fg: string, options: { marginTop?: number } = {}): TextRenderable =>
     new TextRenderable(context, {
@@ -55,6 +51,7 @@ export function createWelcome(context: RenderContext): BoxRenderable {
     keys.add(row);
   }
   welcome.add(keys);
-  welcome.add(text("No editing. Just reading.", mutedColor, { marginTop: 2 }));
+  welcome.add(text("Press ? for every key.", keyColor, { marginTop: 2 }));
+  welcome.add(text("No editing. Just reading.", mutedColor, { marginTop: 1 }));
   return welcome;
 }

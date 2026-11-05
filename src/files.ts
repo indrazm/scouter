@@ -16,6 +16,8 @@ export interface Document {
   path: string;
   text: string;
   lineCount: number;
+  /** Only the first megabyte is loaded; the rest of the file is not shown. */
+  truncated?: boolean;
 }
 
 export interface ImageFile {
@@ -67,20 +69,35 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
   return entries;
 }
 
+/** Reads a text file. Larger files show their first megabyte, cut at a whole character, and are marked as truncated. */
 export async function readDocument(path: string): Promise<Document> {
   // Non-blocking open lets us reject pipes and devices without waiting for a writer.
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const metadata = await file.stat();
     if (!metadata.isFile()) throw new Error("Only regular text files can be viewed.");
-    if (metadata.size > MAX_FILE_BYTES) throw new Error("File is too large (limit: 1 MiB).");
-    const bytes = await readBounded(file);
+    const loaded = await readBounded(file);
+    const truncated = loaded.length > MAX_FILE_BYTES;
+    const bytes = truncated ? loaded.subarray(0, characterBoundary(loaded, MAX_FILE_BYTES)) : loaded;
     if (bytes.includes(0)) throw new Error("Binary files are not supported.");
     const text = displayText(decodeText(bytes)).replace(/\t/g, "    ");
-    return { path, text, lineCount: text === "" ? 0 : text.replace(/\n$/, "").split("\n").length };
+    return {
+      path,
+      text,
+      lineCount: text === "" ? 0 : text.replace(/\n$/, "").split("\n").length,
+      ...(truncated ? { truncated } : {}),
+    };
   } finally {
     await file.close();
   }
+}
+
+/** The position just before the UTF-8 character that `end` would split, so the bytes before it decode cleanly. */
+function characterBoundary(bytes: Uint8Array, end: number): number {
+  let cut = end;
+  // Continuation bytes are 10xxxxxx; the character starts at the first byte that is not one.
+  while (cut > 0 && ((bytes[cut] ?? 0) & 0xc0) === 0x80) cut -= 1;
+  return cut;
 }
 
 /** Reads a picture's bytes, under the same rules as text files: regular files only, and a size limit. */
@@ -98,6 +115,7 @@ export async function readImage(path: string): Promise<ImageFile> {
   }
 }
 
+/** Up to one byte past the limit, so the caller can tell a file that fits from one that does not. */
 async function readBounded(file: Awaited<ReturnType<typeof open>>): Promise<Buffer> {
   const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
   let length = 0;
@@ -108,7 +126,6 @@ async function readBounded(file: Awaited<ReturnType<typeof open>>): Promise<Buff
     if (bytesRead === 0) break;
     length += bytesRead;
   }
-  if (length > MAX_FILE_BYTES) throw new Error("File is too large (limit: 1 MiB).");
   return bytes.subarray(0, length);
 }
 

@@ -8,7 +8,7 @@ import {
   type SyntaxStyle,
   type TreeSitterClient,
 } from "@opentui/core";
-import { basename, posix } from "node:path";
+import { basename, join, posix } from "node:path";
 import { ChangeList, countSegments, statusLetters } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError, displayLabel } from "./files";
@@ -331,6 +331,19 @@ export class DiffScreen {
     const top = this.scroller.scrollTop;
     const target = direction > 0 ? rows.find((row) => row > top) : rows.findLast((row) => row < top);
     if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
+  }
+
+  /**
+   * The highlighted file on disk and the first line its diff changes, from the hunk header's new-file start. Undefined
+   * for a deleted file, which has nothing on disk to open.
+   */
+  changedFile(): { path: string; line: number } | undefined {
+    const change = this.selected;
+    if (!change || !this.repository || change.kind === "deleted") return undefined;
+    const block = this.blocks.find((candidate) => candidate.change.path === change.path);
+    const text = block?.patch.kind === "text" ? block.patch.text : "";
+    const start = /^@@ -\d+(?:,\d+)? \+(\d+)/m.exec(text)?.[1];
+    return { path: join(this.repository.root, change.path), line: Math.max(1, Number(start ?? 1)) };
   }
 
   /** Enter or a click on the highlighted file: hand focus to the reader, now or as soon as it has loaded. */

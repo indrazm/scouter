@@ -13,24 +13,31 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 
 ## What you get
 
-- **Review before you commit.** Staged, unstaged and new files, stacked in one scrolling diff. Jump between hunks with `n` / `p`.
-- **Stays current.** Commit or save in your editor and the diff updates itself.
+- **Review before you commit.** Staged, unstaged and new files, stacked in one scrolling diff. `●` means staged, `○` unstaged, `◐` both. Jump between hunks with `n` / `p`.
+- **Stays current.** Commit or save in your editor and the file list, its change marks and the open file update themselves.
+- **Find anything.** Press `/` on the file list to find a file by name, or on an open file to search it.
 - **Read-only and safe.** It can't edit anything, never touches your git repository, and never runs code from the folder you open.
-- **Quiet and fast.** No frames, no config. Vim-style keys, mouse optional.
+- **Quiet and fast.** No config. Vim-style keys, mouse optional. The active pane is framed in indigo.
 
 ## Keys
 
-| Key             | Does                        |
-| --------------- | --------------------------- |
-| `j` `k` `h` `l` | Move, open, go back         |
-| `Tab`           | Switch panes                |
-| `d`             | Show / hide changes         |
-| `n` `p`         | Next / previous change      |
-| `a`             | All files / one file        |
-| `s`             | Split / unified diff (wide) |
-| `m`             | Markdown: rendered / source |
-| `w`             | Wrap long lines             |
-| `q`             | Quit                        |
+| Key             | Does                                   |
+| --------------- | -------------------------------------- |
+| `j` `k` `h` `l` | Move, open, go back                    |
+| `/`             | Find a file, or search the open file   |
+| `n` `p`         | Next match, or next change in the diff |
+| `Tab`           | Switch panes                           |
+| `d`             | Show / hide changes                    |
+| `a`             | All files / one file                   |
+| `s`             | Split / unified diff (wide)            |
+| `o`             | Open the changed file at its change    |
+| `m`             | Markdown: rendered / source            |
+| `w`             | Wrap long lines                        |
+| `Space` `b`     | Page down / up                         |
+| `g` `G`         | Top / bottom                           |
+| `-`             | Open the folder above                  |
+| `?`             | Every key                              |
+| `q`             | Quit                                   |
 
 ## Update or remove
 

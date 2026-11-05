@@ -2,6 +2,35 @@ import zlib from "node:zlib";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { BoxRenderable, RGBA, type Renderable } from "@opentui/core";
+
+/** Records every change to a pane's border color, leaving the real getter and setter in charge. */
+export function watchBorder(root: Renderable, id: string, writes: string[]): void {
+  const panel = root.findDescendantById(id);
+  if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
+  const accessor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(panel), "borderColor");
+  if (!accessor?.get || !accessor.set) throw new Error("No borderColor accessor.");
+  let current = panel.borderColor.toInts().join(",");
+  Object.defineProperty(panel, "borderColor", {
+    configurable: true,
+    get(this: BoxRenderable) {
+      return accessor.get!.call(this);
+    },
+    set(this: BoxRenderable, value: string | RGBA) {
+      const next = (typeof value === "string" ? RGBA.fromHex(value) : value).toInts().join(",");
+      if (next !== current) writes.push(`${id} -> ${next}`);
+      current = next;
+      accessor.set!.call(this, value);
+    },
+  });
+}
+
+/** The border color of a pane, as a comparable string. */
+export function borderColorOf(root: Renderable, id: string): string {
+  const panel = root.findDescendantById(id);
+  if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
+  return panel.borderColor.toInts().join(",");
+}
 
 export async function withDirectory(run: (path: string) => Promise<void>): Promise<void> {
   const path = await mkdtemp(join(tmpdir(), "scouter-test-"));

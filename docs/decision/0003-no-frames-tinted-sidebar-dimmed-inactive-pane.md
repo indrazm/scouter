@@ -16,3 +16,5 @@ Borders around each panel and a divider line made the screen busy. Users still n
 
 - The footer pill (`FILES` / `READER`) and the dimming carry the active-pane signal, since there is no border to do it.
 - Dimming depends on whether there is something to read, not on which file is highlighted, so brightness does not flicker while moving through the list.
+
+Amended by 0021: the active pane is marked with an indigo border instead of dimming, and the panes are framed again.

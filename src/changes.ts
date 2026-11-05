@@ -139,14 +139,14 @@ export class ChangeList extends ScrollBoxRenderable {
         if (event.button !== MouseButton.LEFT) return;
         event.preventDefault();
         // No focus change here: opening a diff ends with the reader focused, and taking focus on the way would
-        // flash both panes. The owner focuses whichever pane the click leads to.
+        // flash both pane borders. The owner focuses whichever pane the click leads to.
         this.selectIndex(index);
         this.options.onActivate();
       },
     });
     const text = (options: Record<string, unknown>): TextRenderable =>
       new TextRenderable(this.ctx, { height: 1, wrapMode: "none", selectable: false, ...options });
-    const status = text({ width: 2, flexShrink: 0 });
+    const status = text({ width: 4, flexShrink: 0 });
     const name = text({ flexGrow: 1, flexShrink: 1, minWidth: 0 });
     const counts = text({ flexShrink: 0, marginLeft: 1 });
     box.add(status);
@@ -176,7 +176,8 @@ export class ChangeList extends ScrollBoxRenderable {
     const name = displayLabel(posix.basename(change.path));
     const folder = posix.dirname(change.path);
     const origin = change.oldPath ? `  ← ${displayLabel(posix.basename(change.oldPath))}` : "";
-    row.status.content = styled([{ text: letter, fg: color, bold: true }]);
+    const mark = indexMark(change);
+    row.status.content = styled([{ text: letter, fg: color, bold: true }, { text: " " }, ...(mark ? [mark] : [])]);
     row.name.content = styled([
       { text: name, fg: selected ? theme.accent : theme.text, bold: selected },
       { text: origin, fg: theme.dim },
@@ -184,6 +185,16 @@ export class ChangeList extends ScrollBoxRenderable {
     ]);
     row.counts.content = styled(countSegments(change));
   }
+}
+
+/**
+ * Whether the change is in the index: ● staged, ◐ partly staged, ○ not staged. Untracked files have no mark.
+ */
+export function indexMark(change: Change): Segment | undefined {
+  if (change.staged && change.unstaged) return { text: "◐", fg: theme.modified };
+  if (change.staged) return { text: "●", fg: theme.added };
+  if (change.unstaged) return { text: "○", fg: theme.dim };
+  return undefined;
 }
 
 export function countSegments(change: Change): Segment[] {

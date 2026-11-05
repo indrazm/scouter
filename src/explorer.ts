@@ -1,17 +1,37 @@
-import { MouseButton, ScrollBoxRenderable, TextRenderable, type KeyEvent, type RenderContext } from "@opentui/core";
+import {
+  BoxRenderable,
+  MouseButton,
+  ScrollBoxRenderable,
+  TextRenderable,
+  type KeyEvent,
+  type RenderContext,
+} from "@opentui/core";
 import { extname } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
+import { styled } from "./styled";
 import { theme } from "./theme";
 
 interface ExplorerOptions {
   onActivate: () => void;
 }
 
+/** How a row is marked: a status letter at its right edge, and whether its name is faded. */
+export interface RowStyle {
+  letter?: string;
+  color?: string;
+  dim?: boolean;
+}
+
 interface ExplorerRow {
   entry: TreeEntry;
+  box: BoxRenderable;
   text: TextRenderable;
+  mark: TextRenderable;
+  style: RowStyle;
 }
+
+const plainRow = (): RowStyle => ({});
 
 const fileIcons: Record<string, string> = {
   ".js": "\ue74e",
@@ -58,17 +78,15 @@ export class FileExplorer extends ScrollBoxRenderable {
 
   private readonly onActivate: () => void;
 
-  show(entries: TreeEntry[], selectedPath: string): void {
-    for (const row of this.rows) row.text.destroy();
+  show(entries: TreeEntry[], selectedPath: string, style: (entry: TreeEntry) => RowStyle = plainRow): void {
+    for (const row of this.rows) row.box.destroyRecursively();
     this.rows = entries.map((entry, index) => {
-      const text = new TextRenderable(this.ctx, {
+      const box = new BoxRenderable(this.ctx, {
         id: `tree-row-${index}`,
         height: 1,
         width: "100%",
         flexShrink: 0,
-        wrapMode: "none",
-        selectable: false,
-        bg: "transparent",
+        flexDirection: "row",
         onMouseDown: (event) => {
           if (event.button !== MouseButton.LEFT) return;
           event.preventDefault();
@@ -76,8 +94,27 @@ export class FileExplorer extends ScrollBoxRenderable {
           this.onActivate();
         },
       });
-      this.add(text);
-      return { entry, text };
+      const text = new TextRenderable(this.ctx, {
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        wrapMode: "none",
+        selectable: false,
+        bg: "transparent",
+      });
+      const mark = new TextRenderable(this.ctx, {
+        height: 1,
+        flexShrink: 0,
+        marginLeft: 1,
+        wrapMode: "none",
+        selectable: false,
+        bg: "transparent",
+      });
+      box.add(text);
+      box.add(mark);
+      this.add(box);
+      return { entry, box, text, mark, style: style(entry) };
     });
     this.selectedIndex = -1;
     this.selectIndex(
@@ -122,7 +159,7 @@ export class FileExplorer extends ScrollBoxRenderable {
     if (previousRow) this.paintRow(previousRow, previous);
     if (!selectedRow) return;
     this.paintRow(selectedRow, this.selectedIndex);
-    this.scrollChildIntoView(selectedRow.text);
+    this.scrollChildIntoView(selectedRow.box);
   }
 
   private paintRow(row: ExplorerRow, index: number): void {
@@ -139,6 +176,9 @@ export class FileExplorer extends ScrollBoxRenderable {
         ? "\uf0c1"
         : (fileIcons[extname(entry.name).toLowerCase()] ?? "\uf016");
     row.text.content = `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
-    row.text.fg = selected ? theme.accent : theme.text;
+    row.text.fg = selected ? theme.accent : row.style.dim ? theme.dim : theme.text;
+    row.mark.content = row.style.letter
+      ? styled([{ text: row.style.letter, fg: row.style.color ?? theme.text, bold: true }])
+      : "";
   }
 }

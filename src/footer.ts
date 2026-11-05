@@ -14,6 +14,8 @@ export interface DocumentInfo {
   rendered?: boolean;
   /** Set for a picture, which has a size and format instead of lines and encoding. */
   image?: { width: number; height: number; format: string };
+  /** Only the start of the file is loaded, so the line count is a minimum. */
+  truncated?: boolean;
 }
 
 export type DiffScope = "all" | "one";
@@ -33,6 +35,24 @@ export interface DiffInfo {
 }
 
 type Hint = [key: string, action: string];
+
+/** Which `/` prompt is open: finding a file in the list, or searching the open file. */
+export type FooterPrompt = "files" | "reader";
+
+const promptLabels: Record<FooterPrompt, string> = { files: "FIND", reader: "SEARCH" };
+const promptHints: Record<FooterPrompt, Hint[]> = {
+  files: [
+    ["type", "filter"],
+    ["↑ ↓", "move"],
+    ["Enter", "open"],
+    ["Esc", "cancel"],
+  ],
+  reader: [
+    ["type", "search"],
+    ["Enter", "keep"],
+    ["Esc", "cancel"],
+  ],
+};
 
 interface Fact {
   key: string;
@@ -62,16 +82,19 @@ function hintsFor(
       ? [
           ["j k", "move"],
           ["Enter", "view"],
+          ["o", "open file"],
           ["Tab", "diff"],
           ["s", "split"],
           other,
           ["d", "back"],
           ["^←→", "resize"],
+          ["?", "help"],
           ["q", "quit"],
         ]
       : [
           ["j k", "scroll"],
           ["n p", "hunk"],
+          ["o", "open file"],
           ["s", "split"],
           other,
           ["Tab", "files"],
@@ -80,6 +103,7 @@ function hintsFor(
           ["g G", "top/bottom"],
           ["^d ^u", "page"],
           ["d", "back"],
+          ["?", "help"],
           ["q", "quit"],
         ];
   }
@@ -95,11 +119,14 @@ function hintsFor(
     ? [
         ["j k", "move"],
         ["Enter", "open"],
+        ["/", "find"],
+        ["-", "up"],
         ["h", "back"],
         ["Tab", "reader"],
         ["d", "changes"],
         ["w", "wrap"],
         ["^←→", "resize"],
+        ["?", "help"],
         ["q", "quit"],
       ]
     : [
@@ -109,8 +136,10 @@ function hintsFor(
         ["^d ^u", "page"],
         ["Tab", "files"],
         ...view,
+        ...(rendered ? [] : [["/", "search"] as Hint]),
         ["d", "changes"],
         ...(rendered ? [] : [["w", "wrap"] as Hint]),
+        ["?", "help"],
         ["q", "quit"],
       ];
 }
@@ -139,6 +168,7 @@ export class Footer {
   private diff?: DiffInfo;
   private readonly positions: Record<FooterMode, string | undefined> = { browse: undefined, diff: undefined };
   private wrap = false;
+  private prompt?: FooterPrompt;
 
   constructor(private readonly renderer: CliRenderer) {
     this.root = new BoxRenderable(renderer, {
@@ -242,11 +272,18 @@ export class Footer {
     this.render();
   }
 
+  /** A `/` prompt is open. Its typed text is shown as the status row's message. */
+  setPrompt(prompt: FooterPrompt | undefined): void {
+    if (prompt === this.prompt) return;
+    this.prompt = prompt;
+    this.render();
+  }
+
   private readonly render = (): void => {
     if (this.renderer.isDestroyed) return;
     const inner = Math.max(0, this.renderer.width - 2);
     const pill: Segment = {
-      text: ` ${pillLabels[this.mode][this.focus]} `,
+      text: ` ${this.prompt ? promptLabels[this.prompt] : pillLabels[this.mode][this.focus]} `,
       fg: theme.accentInk,
       bg: theme.accent,
       bold: true,
@@ -301,7 +338,8 @@ export class Footer {
       facts.push({ key: "size", segments: [{ text: `${width}×${height}`, fg: theme.muted }] });
       facts.push({ key: "language", segments: [{ text: format, fg: theme.muted }] });
     } else if (this.document) {
-      facts.push({ key: "lines", segments: [{ text: `${this.document.lines} lines`, fg: theme.muted }] });
+      const plus = this.document.truncated ? "+" : "";
+      facts.push({ key: "lines", segments: [{ text: `${this.document.lines}${plus} lines`, fg: theme.muted }] });
       facts.push({ key: "language", segments: [{ text: this.document.language, fg: theme.muted }] });
       facts.push({ key: "encoding", segments: [{ text: "UTF-8", fg: theme.muted }] });
     }
@@ -331,14 +369,16 @@ export class Footer {
 
   /** Quit is reserved its place at the end, so it is the last hint to be dropped on a narrow terminal. */
   private fitHints(columns: number): Segment[] {
-    const hints = hintsFor(
-      this.mode,
-      this.focus,
-      this.wrap,
-      this.diff?.scope ?? "all",
-      this.document?.rendered,
-      this.document?.image !== undefined,
-    );
+    const hints = this.prompt
+      ? promptHints[this.prompt]
+      : hintsFor(
+          this.mode,
+          this.focus,
+          this.wrap,
+          this.diff?.scope ?? "all",
+          this.document?.rendered,
+          this.document?.image !== undefined,
+        );
     const tail = fitHintList(
       hints.filter(([key]) => key === "q"),
       columns,

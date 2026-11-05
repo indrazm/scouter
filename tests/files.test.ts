@@ -73,7 +73,6 @@ test.each([
 test.each([
   ["binary", Buffer.from([65, 0, 66]), "Binary files"],
   ["invalid UTF-8", Buffer.from([0xff, 0xfe]), "Only UTF-8"],
-  ["oversized", Buffer.alloc(1024 * 1024 + 1, 65), "File is too large"],
 ])("rejects %s files", (_name, bytes, error) =>
   withDirectory(async (directory) => {
     const path = join(directory, "unsupported");
@@ -81,6 +80,25 @@ test.each([
     await expect(readDocument(path)).rejects.toThrow(error);
   }),
 );
+
+test("shows the first megabyte of a larger file, marked as truncated, without splitting a character", () =>
+  withDirectory(async (directory) => {
+    const megabyte = 1024 * 1024;
+    const path = join(directory, "large.txt");
+    // The second byte of "é" is the megabyte's last byte, so the cut has to fall before the whole character.
+    await writeFile(path, `${"a".repeat(megabyte - 1)}é${"b".repeat(100)}\n`);
+    const document = await readDocument(path);
+    expect(document.truncated).toBe(true);
+    expect(document.text).toBe("a".repeat(megabyte - 1));
+    expect(document.lineCount).toBe(1);
+  }));
+
+test("a file of exactly one megabyte is shown whole", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "exact.txt");
+    await writeFile(path, Buffer.alloc(1024 * 1024, 65));
+    expect((await readDocument(path)).truncated).toBeUndefined();
+  }));
 
 test("rejects directories and reports missing paths", () =>
   withDirectory(async (directory) => {
