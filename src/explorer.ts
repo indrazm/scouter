@@ -9,6 +9,7 @@ import {
 import { extname } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
+import { handleListKey } from "./keys";
 import { styled } from "./styled";
 import { theme } from "./theme";
 
@@ -33,6 +34,7 @@ interface ExplorerRow {
 
 const plainRow = (): RowStyle => ({});
 
+/** Private-use code points from the Nerd Fonts set, so they show as the icons only in a terminal using a Nerd Font. */
 const fileIcons: Record<string, string> = {
   ".js": "\ue74e",
   ".mjs": "\ue74e",
@@ -80,42 +82,7 @@ export class FileExplorer extends ScrollBoxRenderable {
 
   show(entries: TreeEntry[], selectedPath: string, style: (entry: TreeEntry) => RowStyle = plainRow): void {
     for (const row of this.rows) row.box.destroyRecursively();
-    this.rows = entries.map((entry, index) => {
-      const box = new BoxRenderable(this.ctx, {
-        id: `tree-row-${index}`,
-        height: 1,
-        width: "100%",
-        flexShrink: 0,
-        flexDirection: "row",
-        onMouseDown: (event) => {
-          if (event.button !== MouseButton.LEFT) return;
-          event.preventDefault();
-          this.selectIndex(index);
-          this.onActivate();
-        },
-      });
-      const text = new TextRenderable(this.ctx, {
-        height: 1,
-        flexGrow: 1,
-        flexShrink: 1,
-        minWidth: 0,
-        wrapMode: "none",
-        selectable: false,
-        bg: "transparent",
-      });
-      const mark = new TextRenderable(this.ctx, {
-        height: 1,
-        flexShrink: 0,
-        marginLeft: 1,
-        wrapMode: "none",
-        selectable: false,
-        bg: "transparent",
-      });
-      box.add(text);
-      box.add(mark);
-      this.add(box);
-      return { entry, box, text, mark, style: style(entry) };
-    });
+    this.rows = entries.map((entry, index) => this.createRow(entry, index, style(entry)));
     this.selectedIndex = -1;
     this.selectIndex(
       Math.max(
@@ -124,6 +91,45 @@ export class FileExplorer extends ScrollBoxRenderable {
       ),
     );
     this.rows.forEach((row, index) => this.paintRow(row, index));
+  }
+
+  private createRow(entry: TreeEntry, index: number, style: RowStyle): ExplorerRow {
+    const box = new BoxRenderable(this.ctx, {
+      id: `tree-row-${index}`,
+      height: 1,
+      width: "100%",
+      flexShrink: 0,
+      flexDirection: "row",
+      onMouseDown: (event) => {
+        if (event.button !== MouseButton.LEFT) return;
+        event.preventDefault();
+        // No focus change here: opening a file ends with the reader focused, and taking focus on the way would
+        // flash both pane borders. The owner focuses whichever pane the click leads to.
+        this.selectIndex(index);
+        this.onActivate();
+      },
+    });
+    const text = new TextRenderable(this.ctx, {
+      height: 1,
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      wrapMode: "none",
+      selectable: false,
+      bg: "transparent",
+    });
+    const mark = new TextRenderable(this.ctx, {
+      height: 1,
+      flexShrink: 0,
+      marginLeft: 1,
+      wrapMode: "none",
+      selectable: false,
+      bg: "transparent",
+    });
+    box.add(text);
+    box.add(mark);
+    this.add(box);
+    return { entry, box, text, mark, style };
   }
 
   selected(): TreeEntry | undefined {
@@ -139,16 +145,7 @@ export class FileExplorer extends ScrollBoxRenderable {
   }
 
   override handleKeyPress(key: KeyEvent): boolean {
-    if (key.ctrl || key.meta) return false;
-    if (["j", "down", "k", "up"].includes(key.name)) {
-      this.moveSelection((["k", "up"].includes(key.name) ? -1 : 1) * (key.shift ? 5 : 1));
-      return true;
-    }
-    if (["pageup", "pagedown"].includes(key.name)) {
-      this.moveSelection((key.name === "pageup" ? -1 : 1) * Math.max(1, this.viewport.height - 1));
-      return true;
-    }
-    return false;
+    return handleListKey(this, key);
   }
 
   private selectIndex(index: number): void {

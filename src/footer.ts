@@ -18,6 +18,7 @@ export interface DocumentInfo {
   truncated?: boolean;
 }
 
+/** `all` stacks every changed file's diff in one scrolling reader; `one` shows only the highlighted file. */
 export type DiffScope = "all" | "one";
 
 export interface DiffInfo {
@@ -272,7 +273,10 @@ export class Footer {
     this.render();
   }
 
-  /** A `/` prompt is open. Its typed text is shown as the status row's message. */
+  /**
+   * A `/` prompt is open: the pill and hints switch to the prompt's. What is typed shows in the file list's find bar,
+   * or, for the reader's search, as the status row's message.
+   */
   setPrompt(prompt: FooterPrompt | undefined): void {
     if (prompt === this.prompt) return;
     this.prompt = prompt;

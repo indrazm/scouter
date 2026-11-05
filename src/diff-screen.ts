@@ -1,7 +1,6 @@
 import {
   BoxRenderable,
   DiffRenderable,
-  RGBA,
   ScrollBoxRenderable,
   TextRenderable,
   type RenderContext,
@@ -12,6 +11,7 @@ import { basename, join, posix } from "node:path";
 import { ChangeList, countSegments, statusLetters } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError, displayLabel } from "./files";
+import type { DiffScope } from "./footer";
 import {
   GitError,
   closeRepository,
@@ -26,13 +26,11 @@ import {
   type Repository,
 } from "./git";
 import { styled } from "./styled";
-import { theme } from "./theme";
+import { theme, transparent } from "./theme";
 
 export type DiffView = "unified" | "split";
 /** Narrower than this, two side-by-side columns are unreadable, so split view stays off. */
 export const MIN_SPLIT_COLUMNS = 60;
-/** `all` stacks every changed file's diff in one scrolling reader; `one` shows only the highlighted file. */
-export type DiffScope = "all" | "one";
 
 /** What the rest of the interface (header, footer) needs to know about the diff screen. */
 export interface DiffState {
@@ -91,7 +89,7 @@ function contentKey(files: FilePatch[]): string {
 const diffColors = {
   addedBg: "#12281c",
   removedBg: "#2b1518",
-  contextBg: RGBA.fromValues(0, 0, 0, 0),
+  contextBg: transparent,
   addedLineNumberBg: "#173a27",
   removedLineNumberBg: "#3b1b20",
   addedSignColor: theme.added,
@@ -105,7 +103,6 @@ const FALLBACK_BAND = "#131519";
  * message shown when there is nothing to diff, and the git calls behind them. It never modifies the repository.
  */
 export class DiffScreen {
-  /** Sidebar content. */
   readonly list: ChangeList;
   /** Reader content, holding either the scrollable diffs or a centred message. */
   readonly body: BoxRenderable;
@@ -129,7 +126,10 @@ export class DiffScreen {
   private signature = "";
   /** Fingerprint of the diffs on screen. */
   private shownKey = "";
-  /** Bumped whenever the selection or the scope changes so a slow read for an earlier choice cannot overwrite a newer one. */
+  /**
+   * Bumped whenever a read starts or the one in flight stops being wanted (new selection, scope change, empty list,
+   * close), so a slow read for an earlier choice cannot overwrite a newer one.
+   */
   private request = 0;
   /** True from the moment diffs are being read until they are on screen. */
   private pending = false;
@@ -525,6 +525,16 @@ export class DiffScreen {
       minWidth: "100%",
       ...(index ? { marginTop: 1 } : {}),
     });
+    const header = this.createHeader(change);
+    root.add(header);
+    const diff = patch.kind === "text" ? this.createDiff(change, patch.text) : undefined;
+    root.add(diff ?? this.createNote(patch));
+    return { change, patch, root, header, ...(diff ? { diff } : {}) };
+  }
+
+  /** The band naming a file: status letter, name, where it came from and lives, and its line counts. */
+  private createHeader(change: Change): BoxRenderable {
+    const context = this.context;
     const header = new BoxRenderable(context, {
       height: 1,
       width: "100%",
@@ -562,37 +572,36 @@ export class DiffScreen {
         content: styled(countSegments(change)),
       }),
     );
-    root.add(header);
-    let diff: DiffRenderable | undefined;
-    if (patch.kind === "text") {
-      diff = new DiffRenderable(context, {
-        diff: patch.text,
-        view: this.view,
-        wrapMode: "none",
-        flexShrink: 0,
-        conceal: false,
-        fg: theme.text,
-        filetype: languageFor(change.path),
-        syntaxStyle: this.options.syntax.style,
-        treeSitterClient: this.options.syntax.client,
-        lineNumberFg: theme.muted,
-        ...diffColors,
-        onSizeChange: () => this.layoutChanged(),
-      });
-      root.add(diff);
-    } else {
-      root.add(
-        new TextRenderable(context, {
-          height: 1,
-          paddingLeft: 2,
-          flexShrink: 0,
-          wrapMode: "none",
-          selectable: false,
-          content: styled([{ text: patch.message, fg: theme.muted }]),
-        }),
-      );
-    }
-    return { change, patch, root, header, ...(diff ? { diff } : {}) };
+    return header;
+  }
+
+  private createDiff(change: Change, text: string): DiffRenderable {
+    return new DiffRenderable(this.context, {
+      diff: text,
+      view: this.view,
+      wrapMode: "none",
+      flexShrink: 0,
+      conceal: false,
+      fg: theme.text,
+      filetype: languageFor(change.path),
+      syntaxStyle: this.options.syntax.style,
+      treeSitterClient: this.options.syntax.client,
+      lineNumberFg: theme.muted,
+      ...diffColors,
+      onSizeChange: () => this.layoutChanged(),
+    });
+  }
+
+  /** The line shown instead of a diff when there is nothing textual to show. */
+  private createNote(patch: Patch): TextRenderable {
+    return new TextRenderable(this.context, {
+      height: 1,
+      paddingLeft: 2,
+      flexShrink: 0,
+      wrapMode: "none",
+      selectable: false,
+      content: styled([{ text: patch.kind === "notice" ? patch.message : "", fg: theme.muted }]),
+    });
   }
 
   /** Wrapped text is laid out against the viewport width; unwrapped lines may run past it and scroll sideways. */

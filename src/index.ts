@@ -1,6 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import { describeError } from "./files";
+import { keyListText } from "./keymap";
 import { version } from "../package.json";
 
 const help = `scouter — a minimal read-only terminal file viewer
@@ -11,30 +12,7 @@ Usage: scouter [file-or-directory]
 
 Defaults to the current directory. UTF-8 text files show their first megabyte.
 
-  hjkl / arrows  Navigate files or scroll text
-  Enter          Open a file or toggle a folder
-  l / Right      Expand a folder or select its first child
-  h / Backspace  Collapse a folder or select its parent
-  -              Open the folder above
-  /              Find a file, or search the open file
-  n / p          Next search match, or next hunk (changes screen)
-  Space / b      Page down / up in the reader
-  g / G          Top / bottom
-  Tab            Switch panes
-  w              Toggle word wrap
-  m              Markdown: rendered / source
-  d              Show or hide the changes screen (press again to cancel a slow read)
-  s              Split or unified diff (changes screen)
-  a              All files or the highlighted one (changes screen)
-  r              Reload changes (changes screen)
-  o              Open the changed file at its first change (changes screen)
-  ?              Show every key
-  Escape         Cancel a prompt, or return to the file pane
-  q / Ctrl+c     Quit
-  Left click     Open a file or toggle a folder
-  Mouse wheel    Scroll the pane under the pointer
-  Drag sidebar edge Resize the sidebar
-  Ctrl+Left/Right Resize the sidebar with the keyboard
+${keyListText()}
 `;
 
 async function main(): Promise<void> {

@@ -96,12 +96,12 @@ export async function createRepository(directory: string, files: Record<string, 
   }
 }
 
+type Frames = { renderOnce(): Promise<void>; captureCharFrame(): string };
+
 /**
  * Renders until the screen contains `text`, sleeping between passes. For results that depend on real work
  * outside the renderer, such as git processes, which `waitForFrame`'s few quick passes would not outlast.
  */
-type Frames = { renderOnce(): Promise<void>; captureCharFrame(): string };
-
 export async function waitForText(setup: Frames, text: string, timeoutMs = 5000): Promise<void> {
   await waitForFrame(setup, (frame) => frame.includes(text), `"${text}"`, timeoutMs);
 }

@@ -1,4 +1,4 @@
-import { constants } from "node:fs";
+import { constants, type Stats } from "node:fs";
 import { open, readdir } from "node:fs/promises";
 import { extname, join } from "node:path";
 
@@ -71,11 +71,8 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
 
 /** Reads a text file. Larger files show their first megabyte, cut at a whole character, and are marked as truncated. */
 export async function readDocument(path: string): Promise<Document> {
-  // Non-blocking open lets us reject pipes and devices without waiting for a writer.
-  const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
+  const { file } = await openRegularFile(path, "Only regular text files can be viewed.");
   try {
-    const metadata = await file.stat();
-    if (!metadata.isFile()) throw new Error("Only regular text files can be viewed.");
     const loaded = await readBounded(file);
     const truncated = loaded.length > MAX_FILE_BYTES;
     const bytes = truncated ? loaded.subarray(0, characterBoundary(loaded, MAX_FILE_BYTES)) : loaded;
@@ -100,12 +97,26 @@ function characterBoundary(bytes: Uint8Array, end: number): number {
   return cut;
 }
 
-/** Reads a picture's bytes, under the same rules as text files: regular files only, and a size limit. */
-export async function readImage(path: string): Promise<ImageFile> {
+type OpenFile = Awaited<ReturnType<typeof open>>;
+
+/** Opens `path` for reading and refuses anything that is not a regular file, closing it again when it is refused. */
+async function openRegularFile(path: string, refusal: string): Promise<{ file: OpenFile; metadata: Stats }> {
+  // Non-blocking open lets us reject pipes and devices without waiting for a writer.
   const file = await open(path, constants.O_RDONLY | constants.O_NONBLOCK);
   try {
     const metadata = await file.stat();
-    if (!metadata.isFile()) throw new Error("Only regular files can be viewed.");
+    if (!metadata.isFile()) throw new Error(refusal);
+    return { file, metadata };
+  } catch (error) {
+    await file.close();
+    throw error;
+  }
+}
+
+/** Reads a picture's bytes, under the same rules as text files: regular files only, and a size limit. */
+export async function readImage(path: string): Promise<ImageFile> {
+  const { file, metadata } = await openRegularFile(path, "Only regular files can be viewed.");
+  try {
     if (metadata.size > MAX_IMAGE_BYTES) throw new Error("Image is too large (limit: 10 MiB).");
     const bytes = await file.readFile();
     if (bytes.length > MAX_IMAGE_BYTES) throw new Error("Image is too large (limit: 10 MiB).");
@@ -116,7 +127,7 @@ export async function readImage(path: string): Promise<ImageFile> {
 }
 
 /** Up to one byte past the limit, so the caller can tell a file that fits from one that does not. */
-async function readBounded(file: Awaited<ReturnType<typeof open>>): Promise<Buffer> {
+async function readBounded(file: OpenFile): Promise<Buffer> {
   const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
   let length = 0;
   while (length < bytes.length) {

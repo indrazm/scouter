@@ -57,7 +57,7 @@ test("the welcome screen names the keys a new reader needs", () =>
 test("? shows every key, and any key closes it again", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "a.txt"), "hello\n");
-    await using setup = await createTestRenderer({ width: 100, height: 30 });
+    await using setup = await createTestRenderer({ width: 100, height: 34 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
     await setup.renderOnce();
@@ -75,6 +75,19 @@ test("? shows every key, and any key closes it again", () =>
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Select a file");
     expect(setup.captureCharFrame()).not.toContain("next / previous hunk");
+  }));
+
+test("? on a short terminal starts at the top, so the first sections show rather than the middle", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "a.txt"), "hello\n");
+    await using setup = await createTestRenderer({ width: 100, height: 16 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("?");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Browse");
+    expect(setup.captureCharFrame()).not.toContain("this help (any key closes)");
   }));
 
 test("expands folders in place and collapses them without losing siblings or the document", () =>

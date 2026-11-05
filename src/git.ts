@@ -31,6 +31,13 @@ export interface Change {
   unstaged?: boolean;
 }
 
+/** What `--numstat` says about one file; binary files have no line counts. */
+interface LineCounts {
+  added?: number;
+  removed?: number;
+  binary: boolean;
+}
+
 export interface Repository {
   root: string;
   /**
@@ -60,7 +67,7 @@ export type Patch =
 
 /**
  * Git is only ever asked questions: it works on a private index copy (see `Repository.indexFile`), and
- * repository-configured helpers (external diff, text conversion, the filesystem monitor) are not run.
+ * repository-configured helpers (external diff, text conversion, the filesystem monitor) are not run (0007).
  */
 const readOnlyOptions = [
   "--no-pager",
@@ -75,6 +82,7 @@ const diffOptions = ["--no-ext-diff", "--no-textconv", "--no-color", "-M"];
 function environment(indexFile?: string): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [name, value] of Object.entries(process.env)) if (value !== undefined) env[name] = value;
+  // `--no-ext-diff` already stops it; dropping the variable too means a missed flag cannot run an external program.
   delete env.GIT_EXTERNAL_DIFF;
   return {
     ...env,
@@ -93,7 +101,10 @@ interface Output {
 interface RunOptions {
   limit?: number;
   indexFile?: string;
-  /** Keep what was read before `limit` was reached, instead of discarding it. */
+  /**
+   * Keep what was read when `limit` was reached, instead of discarding it. The chunk that crossed it is kept whole,
+   * so the text can run a little past `limit`.
+   */
   partial?: boolean;
 }
 
@@ -451,14 +462,12 @@ function splitZ(text: string): string[] {
   return tokens;
 }
 
-function parseNameStatus(
-  text: string,
-  counts: Map<string, { added?: number; removed?: number; binary: boolean }>,
-): Change[] {
+function parseNameStatus(text: string, counts: Map<string, LineCounts>): Change[] {
   const tokens = splitZ(text);
   const changes: Change[] = [];
   for (let index = 0; index < tokens.length;) {
     const status = tokens[index++] ?? "";
+    // A copy names a source and a destination path just as a rename does.
     const renamed = status.startsWith("R") || status.startsWith("C");
     const first = tokens[index++];
     const second = renamed ? tokens[index++] : undefined;
@@ -474,9 +483,9 @@ function parseNameStatus(
   return changes;
 }
 
-function parseNumstat(text: string): Map<string, { added?: number; removed?: number; binary: boolean }> {
+function parseNumstat(text: string): Map<string, LineCounts> {
   const tokens = splitZ(text);
-  const result = new Map<string, { added?: number; removed?: number; binary: boolean }>();
+  const result = new Map<string, LineCounts>();
   for (let index = 0; index < tokens.length;) {
     const match = /^(\d+|-)\t(\d+|-)\t([\s\S]*)$/.exec(tokens[index] ?? "");
     if (!match) {

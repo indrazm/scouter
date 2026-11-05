@@ -1,3 +1,5 @@
+import { RGBA } from "@opentui/core";
+
 /** One palette for the whole interface so panes, header and footer never drift apart. */
 export const theme = {
   text: "#d4d8de",
@@ -14,3 +16,5 @@ export const theme = {
   removed: "#f2a1a1",
   modified: "#e5b880",
 } as const;
+
+export const transparent = RGBA.fromValues(0, 0, 0, 0);

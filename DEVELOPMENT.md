@@ -34,12 +34,15 @@ Each decision is written down in [docs/decision](docs/decision) as `NNNN-short-n
 ## Layout
 
 - `src/index.ts`: CLI startup and terminal cleanup.
-- `src/app.ts`: the two-pane interface and its keys.
+- `src/app.ts`: the two-pane interface: layout, browse and diff modes, and key routing. The pieces below each own one behavior (0022).
+- `src/keys.ts`: shared key checks. `src/keymap.ts`: the one list of keys behind `?` and `--help`; the README's table must only use keys listed there.
+- `src/file-finder.ts`: `/` over the file list. `src/document-search.ts`: `/`, `n` and `p` over the open file. `src/sidebar-resizer.ts`: the draggable sidebar edge. `src/browse-watcher.ts`: the refresh queue and timer for browsing.
 - `src/file-tree.ts`, `src/explorer.ts`: lazy folder expansion, and the icons and clickable rows that render it. The tree refreshes expanded folders and reconciles them against disk.
 - `src/code-view.ts`: syntax highlighting, the line-number gutter, and parser-worker cleanup.
-- `src/files.ts`: bounded, read-only filesystem access.
+- `src/files.ts`: bounded, read-only filesystem access. `src/image-view.ts`: pictures in the reader.
+- `src/grammars.ts`: registers the vendored tree-sitter grammars (0014).
 - `src/git.ts`: asks git what changed and reads patches.
-- `src/marks.ts`: turns git's answers (changes, staged state, ignored paths) into tree marks, keyed by path relative to the browsed folder.
+- `src/marks.ts`: asks git about the browsed folder and turns the answers (changes, staged state, ignored paths) into tree marks, keyed by path relative to it.
 - `src/search.ts`: the folder index and query matching behind `/`.
 - `src/changes.ts`: the changed-file list. `src/diff-screen.ts`: the diff view that ties it to the patches.
 - `src/header.ts`, `src/footer.ts`: pane headers and the two-row footer.

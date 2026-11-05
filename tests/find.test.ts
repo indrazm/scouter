@@ -152,3 +152,41 @@ test("search says where it cannot work, on a rendered Markdown file", () =>
     await waitForText(setup, "Press m to search");
     expect(footer(setup).status).not.toContain("SEARCH");
   }));
+
+test("a kept search follows the file when it is saved, so n lands on the new matches", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "notes.txt");
+    await writeFile(path, numbered(60, { 5: "hit one", 30: "hit two" }));
+    await using setup = await createTestRenderer({ width: 100, height: 14 });
+    await using app = new ScouterApp(setup.renderer, { browsePollMs: 40 });
+    await app.open(path);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("hit");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "/hit  1 of 2");
+
+    await writeFile(path, numbered(60, { 45: "hit only" }));
+    await waitForText(setup, "/hit  1 of 1");
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "45  hit only");
+  }));
+
+test("a kept search runs again on the next file opened instead of keeping the old file's lines", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "a.txt"), numbered(60, { 5: "hit one", 30: "hit two" }));
+    await writeFile(join(directory, "b.txt"), numbered(60, { 50: "hit only" }));
+    await using setup = await createTestRenderer({ width: 100, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "a.txt"));
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("hit");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "/hit  1 of 2");
+
+    await app.open(join(directory, "b.txt"));
+    await waitForText(setup, "/hit  1 of 1");
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "50  hit only");
+  }));

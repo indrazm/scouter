@@ -5,9 +5,11 @@ import {
   TextRenderable,
   type KeyEvent,
   type RenderContext,
+  type TextOptions,
 } from "@opentui/core";
 import { posix } from "node:path";
 import { displayLabel } from "./files";
+import { handleListKey } from "./keys";
 import type { Change, ChangeKind } from "./git";
 import { styled, type Segment } from "./styled";
 import { theme } from "./theme";
@@ -37,7 +39,10 @@ export const statusLetters: Record<ChangeKind, { letter: string; color: string }
   untracked: { letter: "?", color: theme.muted },
 };
 
-/** Files that differ from the last commit: one row each, with its kind, name, folder and line counts. */
+/**
+ * Files that differ from the base (the last commit, or the empty tree before the first one): one row each, with its
+ * kind, name, folder and line counts.
+ */
 export class ChangeList extends ScrollBoxRenderable {
   private rows: ChangeRow[] = [];
   private selectedIndex = -1;
@@ -116,16 +121,7 @@ export class ChangeList extends ScrollBoxRenderable {
   }
 
   override handleKeyPress(key: KeyEvent): boolean {
-    if (key.ctrl || key.meta) return false;
-    if (["j", "down", "k", "up"].includes(key.name)) {
-      this.moveSelection((["k", "up"].includes(key.name) ? -1 : 1) * (key.shift ? 5 : 1));
-      return true;
-    }
-    if (["pageup", "pagedown"].includes(key.name)) {
-      this.moveSelection((key.name === "pageup" ? -1 : 1) * Math.max(1, this.viewport.height - 1));
-      return true;
-    }
-    return false;
+    return handleListKey(this, key);
   }
 
   private createRow(change: Change, index: number): ChangeRow {
@@ -144,7 +140,7 @@ export class ChangeList extends ScrollBoxRenderable {
         this.options.onActivate();
       },
     });
-    const text = (options: Record<string, unknown>): TextRenderable =>
+    const text = (options: TextOptions): TextRenderable =>
       new TextRenderable(this.ctx, { height: 1, wrapMode: "none", selectable: false, ...options });
     const status = text({ width: 4, flexShrink: 0 });
     const name = text({ flexGrow: 1, flexShrink: 1, minWidth: 0 });
