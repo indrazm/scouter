@@ -11,7 +11,7 @@ import { posix } from "node:path";
 import { displayLabel } from "./files";
 import { handleListKey } from "./keys";
 import type { Change, ChangeKind } from "./git";
-import { styled, type Segment } from "./styled";
+import { scrollbarStyle, styled, type Segment } from "./styled";
 import { theme } from "./theme";
 
 interface ChangeListOptions {
@@ -29,15 +29,24 @@ interface ChangeRow {
   counts: TextRenderable;
 }
 
-export const statusLetters: Record<ChangeKind, { letter: string; color: string }> = {
-  modified: { letter: "M", color: theme.modified },
-  added: { letter: "A", color: theme.added },
-  deleted: { letter: "D", color: theme.removed },
-  renamed: { letter: "R", color: theme.accentSoft },
-  typechange: { letter: "T", color: theme.muted },
-  conflict: { letter: "U", color: theme.removed },
-  untracked: { letter: "?", color: theme.muted },
+const kindStyles: Record<
+  ChangeKind,
+  { letter: string; color: "modified" | "added" | "removed" | "accentSoft" | "muted" }
+> = {
+  modified: { letter: "M", color: "modified" },
+  added: { letter: "A", color: "added" },
+  deleted: { letter: "D", color: "removed" },
+  renamed: { letter: "R", color: "accentSoft" },
+  typechange: { letter: "T", color: "muted" },
+  conflict: { letter: "U", color: "removed" },
+  untracked: { letter: "?", color: "muted" },
 };
+
+/** The letter that stands for a kind of change, and its colour in the mode in use. */
+export function statusOf(kind: ChangeKind): { letter: string; color: string } {
+  const { letter, color } = kindStyles[kind];
+  return { letter, color: theme[color] };
+}
 
 /**
  * Files that differ from the base (the last commit, or the empty tree before the first one): one row each, with its
@@ -47,6 +56,7 @@ export class ChangeList extends ScrollBoxRenderable {
   private rows: ChangeRow[] = [];
   private selectedIndex = -1;
   private note?: TextRenderable;
+  private noteText = "";
   private readonly options: ChangeListOptions;
 
   constructor(context: RenderContext, options: ChangeListOptions) {
@@ -59,7 +69,7 @@ export class ChangeList extends ScrollBoxRenderable {
       scrollX: false,
       scrollY: true,
       contentOptions: { flexDirection: "column" },
-      scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
+      scrollbarOptions: scrollbarStyle(),
     });
     this.options = options;
   }
@@ -82,7 +92,15 @@ export class ChangeList extends ScrollBoxRenderable {
     if (truncated) this.showNote(`Only the first ${changes.length.toLocaleString("en-US")} changes are listed.`);
   }
 
+  /** Paints every row again, for when the colours changed. */
+  repaint(): void {
+    this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
+    if (this.note) this.note.content = styled([{ text: this.noteText, fg: theme.modified }]);
+    this.scrollbarOptions = scrollbarStyle();
+  }
+
   private showNote(text: string): void {
+    this.noteText = text;
     this.note = new TextRenderable(this.ctx, {
       height: 1,
       width: "100%",
@@ -168,7 +186,7 @@ export class ChangeList extends ScrollBoxRenderable {
 
   private paintRow(row: ChangeRow, selected: boolean): void {
     const { change } = row;
-    const { letter, color } = statusLetters[change.kind];
+    const { letter, color } = statusOf(change.kind);
     const name = displayLabel(posix.basename(change.path));
     const folder = posix.dirname(change.path);
     const origin = change.oldPath ? `  ← ${displayLabel(posix.basename(change.oldPath))}` : "";

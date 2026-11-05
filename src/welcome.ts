@@ -2,9 +2,6 @@ import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core
 import { theme } from "./theme";
 
 const wordmark = ["╔═╗ ╔═╗ ╔═╗ ╦ ╦ ╔╦╗ ╔═╗ ╦═╗", "╚═╗ ║   ║ ║ ║ ║  ║  ║╣  ╠╦╝", "╚═╝ ╚═╝ ╚═╝ ╚═╝  ╩  ╚═╝ ╩╚═"];
-const wordmarkColors = ["#a5b4fc", theme.accent, "#6366f1"];
-const keyColor = theme.accentSoft;
-const mutedColor = theme.muted;
 
 const hints: [key: string, action: string][] = [
   ["j k  ↑ ↓", "move"],
@@ -16,6 +13,7 @@ const hints: [key: string, action: string][] = [
 
 /** Empty state for the reader pane, centered both ways, shown until a file is opened. */
 export function createWelcome(context: RenderContext): BoxRenderable {
+  const { wordmark: wordmarkColors, accentSoft: keyColor, muted: mutedColor } = theme;
   const welcome = new BoxRenderable(context, {
     id: "welcome",
     flexGrow: 1,

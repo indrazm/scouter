@@ -1,6 +1,11 @@
 import { StyledText, bg as background, bold as emphasis, fg as foreground, type TextChunk } from "@opentui/core";
 import { theme } from "./theme";
 
+/** The scrollbar every scrolling pane uses: no track, a thumb in the muted colour of the mode in use. */
+export function scrollbarStyle(): { trackOptions: { backgroundColor: string; foregroundColor: string } } {
+  return { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } };
+}
+
 export interface Segment {
   text: string;
   fg?: string;

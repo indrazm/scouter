@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxRenderable, RGBA, type Renderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
+import { theme } from "../src/theme";
 
 /** Records every change to a pane's border color, leaving the real getter and setter in charge. */
 export function watchBorder(root: Renderable, id: string, writes: string[]): void {
@@ -157,10 +158,55 @@ export function solidPng(width: number, height: number, [red, green, blue]: [num
 
 /** The words on screen that a search has marked: those drawn on the match background, in reading order. */
 export function markedWords(setup: TestRendererSetup): string[] {
-  const [red, green, blue] = [229, 184, 128];
+  const [red, green, blue] = RGBA.fromHex(theme.matchBg).toInts();
   return setup
     .captureSpans()
     .lines.flatMap((line) => line.spans)
     .filter((span) => span.bg.buffer[0] === red && span.bg.buffer[1] === green && span.bg.buffer[2] === blue)
     .map((span) => span.text);
+}
+
+/** The colour a piece of text is drawn in: the foreground of the first span containing `text`, as 0-255 channels. */
+export function textColorOf(setup: TestRendererSetup, text: string): number[] | undefined {
+  const span = setup
+    .captureSpans()
+    .lines.flatMap((line) => line.spans)
+    .find((candidate) => candidate.text.includes(text));
+  return span && Array.from(span.fg.buffer).slice(0, 3);
+}
+
+/** Whether any span on screen has `hex` as its background. */
+export function hasBackground(setup: TestRendererSetup, hex: string): boolean {
+  const [red, green, blue] = RGBA.fromHex(hex).toInts();
+  return setup
+    .captureSpans()
+    .lines.flatMap((line) => line.spans)
+    .some((span) => span.bg.buffer[0] === red && span.bg.buffer[1] === green && span.bg.buffer[2] === blue);
+}
+
+/** The channels of a colour, to compare with `textColorOf`. */
+export function channels(hex: string): number[] {
+  return RGBA.fromHex(hex).toInts().slice(0, 3);
+}
+
+/** The background channels of every span on one screen row, left to right. */
+export function rowBackgrounds(setup: TestRendererSetup, row: number): number[][] {
+  const spans = setup.captureSpans().lines[row]?.spans ?? [];
+  return spans.map((span) => Array.from(span.bg.buffer).slice(0, 3));
+}
+
+/** Whether any span in the first `rows` rows that starts at or right of column `fromX` has `hex` as its background. */
+export function hasBackgroundFrom(setup: TestRendererSetup, hex: string, fromX: number, rows: number): boolean {
+  const wanted = RGBA.fromHex(hex).toInts().slice(0, 3).join();
+  return setup
+    .captureSpans()
+    .lines.slice(0, rows)
+    .some((line) => {
+      let x = 0;
+      return line.spans.some((span) => {
+        const start = x;
+        x += span.width;
+        return start >= fromX && Array.from(span.bg.buffer).slice(0, 3).join() === wanted;
+      });
+    });
 }

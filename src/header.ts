@@ -62,6 +62,11 @@ export class PaneHeader {
     this.render();
   }
 
+  /** Draws the title and badges again, for when the colours changed. */
+  restyle(): void {
+    this.render();
+  }
+
   private render(): void {
     this.title.content = this.notice
       ? styled([{ text: this.notice, fg: theme.error, bold: true }])

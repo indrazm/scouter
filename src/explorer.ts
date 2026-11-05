@@ -10,7 +10,7 @@ import { extname, posix } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
 import { handleListKey } from "./keys";
-import { styled } from "./styled";
+import { scrollbarStyle, styled } from "./styled";
 import { theme } from "./theme";
 
 interface ExplorerOptions {
@@ -94,7 +94,7 @@ export class FileExplorer extends ScrollBoxRenderable {
       scrollX: false,
       scrollY: true,
       contentOptions: { flexDirection: "column" },
-      scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
+      scrollbarOptions: scrollbarStyle(),
     });
     this.onActivate = options.onActivate;
   }
@@ -151,6 +151,13 @@ export class FileExplorer extends ScrollBoxRenderable {
     box.add(mark);
     this.add(box);
     return { entry, box, text, mark, style };
+  }
+
+  /** Paints every row again, for when the colours changed; `style` marks the rows afresh in the new colours. */
+  repaint(style: (entry: TreeEntry) => RowStyle): void {
+    for (const row of this.rows) row.style = style(row.entry);
+    this.rows.forEach((row, index) => this.paintRow(row, index));
+    this.scrollbarOptions = scrollbarStyle();
   }
 
   selected(): TreeEntry | undefined {

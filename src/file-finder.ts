@@ -94,6 +94,8 @@ function textStatus(progress: TextProgress): string {
 export class FileFinder {
   readonly bar: TextRenderable;
   private finding?: Finding;
+  /** What the prompt line says, so it can be drawn again in other colours. */
+  private line = { query: "", status: "" };
 
   constructor(
     context: RenderContext,
@@ -107,6 +109,11 @@ export class FileFinder {
       selectable: false,
     });
     this.bar.visible = false;
+  }
+
+  /** Draws the prompt line again, for when the colours changed. */
+  restyle(): void {
+    this.bar.content = promptLine(this.line.query, this.line.status);
   }
 
   /** Whether the prompt is open, with its matches on screen in place of the tree. */
@@ -191,6 +198,11 @@ export class FileFinder {
     });
   }
 
+  private say(query: string, status: string): void {
+    this.line = { query, status };
+    this.restyle();
+  }
+
   /** Shows what is typed, and what it matches, or the whole tree while nothing is typed. */
   private update(): void {
     const finding = this.finding;
@@ -206,13 +218,13 @@ export class FileFinder {
     this.host.preview(undefined, "");
     const hint =
       finding.mode === "files" ? "type to find a file, Tab to search inside files" : "type to search inside files";
-    this.bar.content = promptLine(finding.query, hint);
+    this.say(finding.query, hint);
     this.host.showTree(this.host.browser.selected()?.path ?? finding.returnTo ?? this.host.rootPath() ?? "");
   }
 
   private showIndexing(finding: Finding): void {
     this.host.preview(undefined, "");
-    this.bar.content = promptLine(finding.query, "indexing…");
+    this.say(finding.query, "indexing…");
     this.host.browser.show([], "");
   }
 
@@ -222,14 +234,14 @@ export class FileFinder {
     const rows = matches.map(toTreeEntry);
     this.host.browser.show(rows, rows[0]?.path ?? "", (row) => this.host.styleOf(row));
     const count = total === 0 ? "no matches" : countText(total, "match", "matches");
-    this.bar.content = promptLine(finding.query, finding.truncated ? `${count}, first 20,000 files` : count);
+    this.say(finding.query, finding.truncated ? `${count}, first 20,000 files` : count);
   }
 
   private showText(finding: Finding): void {
     const progress = finding.text;
     if (finding.query.length < MIN_TEXT_QUERY || !progress) {
       const short = finding.query.length < MIN_TEXT_QUERY;
-      this.bar.content = promptLine(finding.query, short ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…");
+      this.say(finding.query, short ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…");
       this.host.browser.show([], "");
       // A short query matches nothing, but while the next results are on their way the last one stays in view.
       if (short) this.host.preview(undefined, "");
@@ -240,7 +252,7 @@ export class FileFinder {
     const kept = this.host.browser.selected()?.path;
     const selected = rows.some((row) => row.path === kept) ? kept : rows[0]?.path;
     this.host.browser.show(rows, selected ?? "", (row) => this.host.styleOf(row));
-    this.bar.content = promptLine(finding.query, textStatus(progress));
+    this.say(finding.query, textStatus(progress));
     this.host.preview(this.host.browser.selected(), finding.query);
   }
 

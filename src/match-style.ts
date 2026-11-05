@@ -3,7 +3,10 @@ import { theme } from "./theme";
 
 /** The syntax group the words that match a search are put in; `CodeView` registers its style under this name. */
 export const MATCH_GROUP = "search.match";
-export const MATCH_STYLE = { fg: theme.accentInk, bg: theme.modified, bold: true };
+/** The chip the matches are drawn in, in the colours of the mode in use. */
+export function matchStyle(): { fg: string; bg: string; bold: boolean } {
+  return { fg: theme.matchFg, bg: theme.matchBg, bold: true };
+}
 
 /**
  * A file with no grammar has no filetype, and the renderer then skips highlighting altogether, including ours. Giving

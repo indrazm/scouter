@@ -35,7 +35,8 @@ Each decision is written down in [docs/decision](docs/decision) as `NNNN-short-n
 
 - `src/index.ts`: CLI startup and terminal cleanup.
 - `src/app.ts`: the two-pane interface: layout, browse and diff modes, and key routing. The pieces below each own one behavior (0022).
-- `src/keys.ts`: shared key checks. `src/keymap.ts`: the one list of keys behind `?` and `--help`; the README's table must only use keys listed there.
+- `src/keys.ts`: shared key checks and the keys that scroll or move a pane. `src/keymap.ts`: the one list of keys behind `?` and `--help`; the README's table must only use keys listed there.
+- `src/theme.ts`: the dark and light palettes, and `theme`, which gives out the colours of the mode in use. `src/system-theme.ts`: follows the terminal between them (0027).
 - `src/match-style.ts`: the highlight for searched words, shared by the reader and the preview (0025).
 - `src/file-finder.ts`: `/` over the file list. `src/preview.ts`: the reader's look at the highlighted text search result (0024). `src/document-search.ts`: `/`, `n` and `p` over the open file. `src/sidebar-resizer.ts`: the draggable sidebar edge. `src/browse-watcher.ts`: the refresh queue and timer for browsing.
 - `src/file-tree.ts`, `src/explorer.ts`: lazy folder expansion, and the icons and clickable rows that render it. The tree refreshes expanded folders and reconciles them against disk.
@@ -62,4 +63,5 @@ Each decision is written down in [docs/decision](docs/decision) as `NNNN-short-n
 - **Git safety.** A private copy of the index (`GIT_INDEX_FILE`) preserving the original's mtime, `--no-ext-diff --no-textconv`, `core.fsmonitor=false`, and literal pathspecs.
 - **Limits.** 1,000 changed files listed, 1 MiB per file's diff and 4 MiB across the stacked view (files past that are replaced by a note pointing at `a`); text files show their first 1 MiB, marked in the header and footer; binary files show a note instead of a diff.
 - **Highlighting.** Tree-sitter grammars for JavaScript/JSX, TypeScript/TSX, Markdown and Zig come with OpenTUI; JSON, CSS, HTML, Go, Rust, Python, Bash, YAML, TOML, C and Java are vendored in `grammars/` (0014). All are local, so no network access is needed. Tree-sitter may create cache directories under `${XDG_CACHE_HOME:-~/.cache}/scouter`.
+- **Theme.** The colours follow the terminal. At start, and whenever the terminal announces a change (OpenTUI's `theme_mode` event), and, if the terminal answered for its colours at all and has not announced a change yet, every 3 seconds, Scouter reads the terminal's background; light or dark is decided by its brightness and the sidebar tint is made from it. A change redraws every pane in the other palette without touching what is open, scroll positions or focus. A terminal that never answers stays dark. `tests/theme.test.ts` checks the contrast of both palettes.
 - **Rendering.** Tabs display as four spaces; control and bidirectional override characters display as `�`.

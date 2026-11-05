@@ -17,7 +17,7 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 - **Stays current.** Commit or save in your editor and the file list, its change marks and the open file update themselves.
 - **Find anything.** Press `/` on the file list to find a file by name, then `Tab` to search the text inside every file, with the reader previewing the highlighted result. On an open file, `/` searches that file. Every match is highlighted.
 - **Read-only and safe.** It can't edit anything, never touches your git repository, and never runs code from the folder you open.
-- **Quiet and fast.** No config. Vim-style keys, mouse optional. The active pane is framed in indigo.
+- **Quiet and fast.** No config. Vim-style keys, mouse optional. The active pane is framed in indigo, and the colours follow your terminal between light and dark.
 
 ## Keys
 

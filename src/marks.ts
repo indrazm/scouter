@@ -1,6 +1,6 @@
 import { realpath } from "node:fs/promises";
 import { posix, relative } from "node:path";
-import { statusLetters } from "./changes";
+import { statusOf } from "./changes";
 import { closeRepository, listChanges, listIgnored, openRepository, type Change, type Repository } from "./git";
 import type { RowStyle } from "./explorer";
 import { theme } from "./theme";
@@ -79,7 +79,7 @@ export class GitMarks {
   /** The letter and colour for a changed file, or a dot for a folder that holds some. `path` is relative to the browsed folder. */
   styleOf(path: string): RowStyle {
     const change = this.changes.get(path);
-    if (change) return { letter: statusLetters[change.kind].letter, color: statusLetters[change.kind].color };
+    if (change) return statusOf(change.kind);
     if (this.folders.has(path)) return { letter: "•", color: theme.modified };
     return {};
   }

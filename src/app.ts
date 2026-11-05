@@ -1,4 +1,4 @@
-import { BoxRenderable, RGBA, ScrollBoxRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
+import { BoxRenderable, ScrollBoxRenderable, type CliRenderer, type KeyEvent } from "@opentui/core";
 import { stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { BrowseWatcher } from "./browse-watcher";
@@ -10,12 +10,14 @@ import { FileFinder } from "./file-finder";
 import { FileTree, type TreeEntry } from "./file-tree";
 import { Footer } from "./footer";
 import { PaneHeader, type HeaderBadge } from "./header";
-import { boundaryOf, isPlain, isQuit } from "./keys";
+import { boundaryOf, isPlain, isQuit, scrollByKey } from "./keys";
 import { GitMarks, treeRelative } from "./marks";
 import { HitPreview } from "./preview";
 import { createHelp } from "./help";
 import { SidebarResizer } from "./sidebar-resizer";
-import { theme, transparent } from "./theme";
+import { scrollbarStyle } from "./styled";
+import { SystemThemeWatcher, type SystemTheme } from "./system-theme";
+import { setThemeMode, theme, tintedBackground, transparent } from "./theme";
 import { createWelcome } from "./welcome";
 import {
   describeError,
@@ -29,34 +31,10 @@ import {
 import { ImageView, describeImage, type ImageDetails } from "./image-view";
 import { GitError } from "./git";
 
-const FALLBACK_SIDEBAR_BACKGROUND = "#131519";
-const SIDEBAR_TINT = 0.025;
 /** How often the diff screen re-reads git while it is open. */
 const DIFF_POLL_MS = 2000;
 /** How often the file list, its git marks and the open file are re-read while browsing. */
 const BROWSE_POLL_MS = 2000;
-
-/** Columns a `h` / `l` press pans the reader by. */
-const PAN_COLUMNS = 4;
-const PAN_KEYS = new Map([
-  ["h", -PAN_COLUMNS],
-  ["left", -PAN_COLUMNS],
-  ["l", PAN_COLUMNS],
-  ["right", PAN_COLUMNS],
-]);
-const SCROLL_KEYS = new Map([
-  ["j", 1],
-  ["down", 1],
-  ["k", -1],
-  ["up", -1],
-]);
-/** Fractions of the viewport a paging key scrolls by. */
-const PAGE_KEYS = new Map([
-  ["pagedown", 0.9],
-  ["space", 0.9],
-  ["pageup", -0.9],
-  ["b", -0.9],
-]);
 
 export interface ScouterAppOptions {
   diffPollMs?: number;
@@ -82,15 +60,6 @@ async function fileStamp(path: string): Promise<string> {
   return `${info.mtimeMs}:${info.size}`;
 }
 
-/** Nudges the terminal's own background slightly toward white (dark themes) or black (light themes). */
-function tintedBackground(hex: string | null): string {
-  if (!hex) return FALLBACK_SIDEBAR_BACKGROUND;
-  const base = RGBA.fromHex(hex);
-  const target = base.r * 0.299 + base.g * 0.587 + base.b * 0.114 < 0.5 ? 1 : 0;
-  const mix = (channel: number): number => Math.round((channel + (target - channel) * SIDEBAR_TINT) * 255);
-  return `#${[mix(base.r), mix(base.g), mix(base.b)].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
-}
-
 export class ScouterApp {
   private readonly tree = new FileTree();
   /** What is being read from disk or git right now. Only one read at a time, so their results cannot interleave. */
@@ -106,9 +75,10 @@ export class ScouterApp {
   private readonly codeView: CodeView;
   private readonly imageView: ImageView;
   private readonly footer: Footer;
-  private readonly welcome: BoxRenderable;
+  private welcome: BoxRenderable;
+  private readonly layout: BoxRenderable;
   /** The `?` key list, covering the panes while it is open. */
-  private readonly help: BoxRenderable;
+  private help: BoxRenderable;
   private readonly diffScreen: DiffScreen;
   private readonly finder: FileFinder;
   private readonly search: DocumentSearch;
@@ -116,6 +86,7 @@ export class ScouterApp {
   /** The file name shown in the reader's header while a text search result is previewed, else undefined. */
   private previewTitle?: string;
   private readonly watcher: BrowseWatcher;
+  private readonly systemTheme: SystemThemeWatcher;
   private readonly marks = new GitMarks();
   private mode: "browse" | "diff" = "browse";
   /** Which pane had focus when the diff screen opened, so closing it puts the user back where they were. */
@@ -136,6 +107,7 @@ export class ScouterApp {
     options: ScouterAppOptions = {},
   ) {
     const layout = new BoxRenderable(renderer, { width: "100%", height: "100%", flexDirection: "column" });
+    this.layout = layout;
     const panes = new BoxRenderable(renderer, {
       width: "100%",
       flexDirection: "row",
@@ -178,7 +150,7 @@ export class ScouterApp {
       scrollX: true,
       scrollY: true,
       contentOptions: { flexDirection: "column" },
-      scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
+      scrollbarOptions: scrollbarStyle(),
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => this.updatePosition() },
       onSizeChange: () => {
@@ -240,7 +212,7 @@ export class ScouterApp {
     panes.add(this.viewerPanel);
     layout.add(panes);
     layout.add(this.footer.root);
-    this.help = createHelp(renderer, FALLBACK_SIDEBAR_BACKGROUND);
+    this.help = createHelp(renderer, theme.fallbackBackground);
     this.help.visible = false;
     // Last in the layout, so it draws over the panes it covers.
     layout.add(this.help);
@@ -250,7 +222,8 @@ export class ScouterApp {
     renderer.once("destroy", this.dispose);
     this.sidebar.fit();
     this.focusBrowser();
-    void this.tintSidebar();
+    this.systemTheme = new SystemThemeWatcher(renderer, (system) => this.applyTheme(system));
+    this.systemTheme.start();
     this.watcher.start();
   }
 
@@ -266,15 +239,51 @@ export class ScouterApp {
     return this.shown.kind === "image";
   }
 
-  private async tintSidebar(): Promise<void> {
-    const palette = await this.renderer.getPalette({ timeout: 500 }).catch(() => undefined);
+  /**
+   * The terminal went light or dark, or changed its background: everything is drawn again in the matching colours.
+   * Panes keep what they show, their scroll positions and the focus; only colours change.
+   */
+  private applyTheme({ mode, background }: SystemTheme): void {
     if (this.renderer.isDestroyed) return;
-    const tint = tintedBackground(palette?.defaultBackground ?? null);
+    setThemeMode(mode);
+    const tint = tintedBackground(background);
     this.browserPanel.backgroundColor = tint;
     this.footer.setBackground(tint);
     this.diffScreen.setTint(tint);
-    this.help.backgroundColor = tint;
+    const replacedStyle = this.codeView.restyle();
+    this.diffScreen.restyle();
+    this.preview.restyle();
+    this.browser.repaint((entry) => this.styleOf(entry));
+    this.finder.restyle();
+    this.viewer.scrollbarOptions = scrollbarStyle();
+    this.viewerHeader.restyle();
+    this.footer.restyle();
+    this.rebuildWelcome();
+    this.rebuildHelp(tint);
+    // Both borders are written once, so the one that is lit follows the new accent.
+    this.focusPane = undefined;
+    this.updateFocus();
+    replacedStyle.destroy();
     this.renderer.requestRender();
+  }
+
+  /** The welcome screen and the key list build their text in the colours of the moment, so they are built again. */
+  private rebuildWelcome(): void {
+    const visible = this.welcome.visible;
+    this.welcome.destroyRecursively();
+    this.welcome = createWelcome(this.renderer);
+    this.welcome.visible = visible;
+    // Second in the pane, after the header, where it was first built.
+    this.viewerPanel.add(this.welcome, 1);
+  }
+
+  private rebuildHelp(background: string): void {
+    const visible = this.help.visible;
+    this.help.destroyRecursively();
+    this.help = createHelp(this.renderer, background);
+    this.help.visible = visible;
+    // Last in the layout, so it draws over the panes it covers.
+    this.layout.add(this.help);
   }
 
   async open(path: string): Promise<void> {
@@ -841,34 +850,13 @@ export class ScouterApp {
 
   private handleViewerKey(key: KeyEvent): void {
     if (key.meta) return;
-    if (key.ctrl) {
-      this.handleScrollChord(key);
-      return;
-    }
-    if (this.scrollByKey(key)) return;
+    // Any other Ctrl chord is not a reader key and stops here.
+    if (scrollByKey(this.reader, key) || key.ctrl) return;
     if (this.mode === "browse" && this.handleSearchKeyInReader(key)) return;
     const edge = boundaryOf(key);
     if (!edge) return;
     key.preventDefault();
     this.reader.scrollTo(edge === "end" ? Infinity : 0);
-  }
-
-  private handleScrollChord(key: KeyEvent): void {
-    if (!["u", "d"].includes(key.name)) return;
-    key.preventDefault();
-    this.reader.scrollBy(key.name === "u" ? -0.5 : 0.5, "viewport");
-  }
-
-  /** Arrows and vim keys pan or scroll by a few cells; paging keys scroll by most of the viewport. */
-  private scrollByKey(key: KeyEvent): boolean {
-    const x = PAN_KEYS.get(key.name);
-    const y = SCROLL_KEYS.get(key.name);
-    const page = PAGE_KEYS.get(key.name);
-    if (x === undefined && y === undefined && page === undefined) return false;
-    key.preventDefault();
-    if (page !== undefined) this.reader.scrollBy(page, "viewport");
-    else this.reader.scrollBy({ x: x ?? 0, y: y ?? 0 });
-    return true;
   }
 
   private handleSearchKeyInReader(key: KeyEvent): boolean {
@@ -975,6 +963,7 @@ export class ScouterApp {
     this.renderer.keyInput.off("keypress", this.onKeyPress);
     this.renderer.off("focused_renderable", this.updateFocus);
     this.sidebar.dispose();
+    this.systemTheme.stop();
     // Stopping waits for a refresh in progress, so the repository it opened is closed after it.
     this.workerClosed = Promise.all([
       this.codeView.destroy(),

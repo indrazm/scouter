@@ -223,6 +223,11 @@ export class Footer {
     this.render();
   }
 
+  /** Draws everything again, for when the colours changed. */
+  restyle(): void {
+    this.render();
+  }
+
   setBackground(color: string): void {
     this.band.backgroundColor = color;
     this.renderer.requestRender();

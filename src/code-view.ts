@@ -12,7 +12,8 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Document } from "./files";
 import { extraLanguages, registerGrammars } from "./grammars";
-import { MATCH_GROUP, MATCH_STYLE, PLAIN_FILETYPE, markMatches } from "./match-style";
+import { MATCH_GROUP, PLAIN_FILETYPE, markMatches, matchStyle } from "./match-style";
+import { theme } from "./theme";
 
 const supportedLanguages = new Set([
   "javascript",
@@ -31,11 +32,49 @@ export function languageFor(path: string): string | undefined {
   return detected && supportedLanguages.has(detected) ? detected : undefined;
 }
 
+type StyleMap = Parameters<typeof SyntaxStyle.fromStyles>[0];
+
+/** The colours of the code and Markdown in the reader, in the mode in use. */
+function syntaxStyles(): StyleMap {
+  const { syntax, text } = theme;
+  return {
+    default: { fg: text },
+    keyword: { fg: syntax.keyword, bold: true },
+    string: { fg: syntax.string },
+    comment: { fg: syntax.comment, italic: true },
+    number: { fg: syntax.constant },
+    boolean: { fg: syntax.constant },
+    constant: { fg: syntax.constant },
+    function: { fg: syntax.function },
+    type: { fg: syntax.constant },
+    constructor: { fg: syntax.constant },
+    variable: { fg: text },
+    property: { fg: syntax.function },
+    operator: { fg: syntax.keyword },
+    punctuation: { fg: syntax.punctuation },
+    tag: { fg: syntax.keyword },
+    attribute: { fg: syntax.function },
+    escape: { fg: syntax.constant },
+    label: { fg: syntax.constant },
+    namespace: { fg: syntax.constant },
+    "markup.heading": { fg: syntax.function, bold: true },
+    ...Object.fromEntries(
+      Array.from({ length: 6 }, (_, index) => [`markup.heading.${index + 1}`, { fg: syntax.function, bold: true }]),
+    ),
+    "markup.bold": { bold: true },
+    "markup.strong": { bold: true },
+    "markup.italic": { italic: true },
+    "markup.raw": { fg: syntax.string },
+    "markup.link": { fg: syntax.function, underline: true },
+    [MATCH_GROUP]: matchStyle(),
+  };
+}
+
 export class CodeView {
   /** Shared with the diff view so both highlight with the same colours and one parser worker. */
-  readonly syntax: { style: SyntaxStyle; client: TreeSitterClient };
+  readonly syntax: { style: SyntaxStyle; readonly client: TreeSitterClient };
   private readonly client: TreeSitterClient;
-  private readonly style: SyntaxStyle;
+  private style: SyntaxStyle;
   private readonly code: CodeRenderable;
   private readonly lines: LineNumberRenderable;
   private readonly preview: MarkdownRenderable;
@@ -50,43 +89,10 @@ export class CodeView {
 
   /** `onLayout` fires when the document's rendered size changes: a new file, toggled wrapping, a resize. */
   constructor(
-    renderer: CliRenderer,
+    private readonly renderer: CliRenderer,
     private readonly options: { onLayout?: () => void } = {},
   ) {
-    this.style = SyntaxStyle.fromStyles(
-      {
-        default: { fg: "#d4d8de" },
-        keyword: { fg: "#c792ea", bold: true },
-        string: { fg: "#a7c7a1" },
-        comment: { fg: "#8b929c", italic: true },
-        number: { fg: "#e5b880" },
-        boolean: { fg: "#e5b880" },
-        constant: { fg: "#e5b880" },
-        function: { fg: "#82aaff" },
-        type: { fg: "#e5b880" },
-        constructor: { fg: "#e5b880" },
-        variable: { fg: "#d4d8de" },
-        property: { fg: "#82aaff" },
-        operator: { fg: "#c792ea" },
-        punctuation: { fg: "#b2b9c3" },
-        tag: { fg: "#c792ea" },
-        attribute: { fg: "#82aaff" },
-        escape: { fg: "#e5b880" },
-        label: { fg: "#e5b880" },
-        namespace: { fg: "#e5b880" },
-        "markup.heading": { fg: "#82aaff", bold: true },
-        ...Object.fromEntries(
-          Array.from({ length: 6 }, (_, index) => [`markup.heading.${index + 1}`, { fg: "#82aaff", bold: true }]),
-        ),
-        "markup.bold": { bold: true },
-        "markup.strong": { bold: true },
-        "markup.italic": { italic: true },
-        "markup.raw": { fg: "#a7c7a1" },
-        "markup.link": { fg: "#82aaff", underline: true },
-        [MATCH_GROUP]: MATCH_STYLE,
-      },
-      renderer.nativeScene,
-    );
+    this.style = SyntaxStyle.fromStyles(syntaxStyles(), renderer.nativeScene);
     this.client = new TreeSitterClient({
       dataPath: join(process.env.XDG_CACHE_HOME || join(homedir(), ".cache"), "scouter"),
     });
@@ -97,7 +103,7 @@ export class CodeView {
       content: "",
       syntaxStyle: this.style,
       treeSitterClient: this.client,
-      fg: "#d4d8de",
+      fg: theme.text,
       wrapMode: "none",
       flexShrink: 0,
       conceal: false,
@@ -108,7 +114,7 @@ export class CodeView {
       target: this.code,
       minWidth: 3,
       paddingRight: 2,
-      fg: "#8b929c",
+      fg: theme.muted,
       bg: "transparent",
       flexShrink: 0,
       showLineNumbers: false,
@@ -119,7 +125,7 @@ export class CodeView {
       content: "",
       syntaxStyle: this.style,
       treeSitterClient: this.client,
-      fg: "#d4d8de",
+      fg: theme.text,
       width: "100%",
       flexShrink: 0,
       paddingLeft: 2,
@@ -127,6 +133,22 @@ export class CodeView {
       onSizeChange: () => this.options.onLayout?.(),
     });
     this.preview.visible = false;
+  }
+
+  /**
+   * Redraws the code and Markdown in the colours of the mode now in use. Returns the style that was replaced; destroy
+   * it once everything else that shared it (the diff, the preview) has moved to `syntax.style`.
+   */
+  restyle(): SyntaxStyle {
+    const previous = this.style;
+    this.style = SyntaxStyle.fromStyles(syntaxStyles(), this.renderer.nativeScene);
+    this.syntax.style = this.style;
+    this.code.syntaxStyle = this.style;
+    this.preview.syntaxStyle = this.style;
+    this.code.fg = theme.text;
+    this.preview.fg = theme.text;
+    this.lines.fg = theme.muted;
+    return previous;
   }
 
   mount(viewer: ScrollBoxRenderable): void {

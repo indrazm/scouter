@@ -3,10 +3,13 @@ import type { CodeView } from "./code-view";
 import { languageFor } from "./code-view";
 import { readDocument, type Document } from "./files";
 import { PLAIN_FILETYPE, markMatches } from "./match-style";
+import { scrollbarStyle } from "./styled";
 import { theme } from "./theme";
 
 /** The line a result points at is tinted so it stands out from the lines around it. */
-const MATCH_LINE = { gutter: "#343b66", content: "#262b46" };
+function targetLine(): { gutter: string; content: string } {
+  return { gutter: theme.targetGutter, content: theme.targetBg };
+}
 
 /**
  * A read-only look at the file behind the highlighted text search result, scrolled so its line sits a third of the way
@@ -24,7 +27,10 @@ export class HitPreview {
   /** Bumped when a newer result is asked for or the preview is hidden, so a slow read cannot show a stale file. */
   private request = 0;
 
-  constructor(renderer: CliRenderer, syntax: CodeView["syntax"]) {
+  constructor(
+    renderer: CliRenderer,
+    private readonly syntax: CodeView["syntax"],
+  ) {
     this.root = new ScrollBoxRenderable(renderer, {
       id: "preview",
       width: "100%",
@@ -34,7 +40,7 @@ export class HitPreview {
       scrollX: true,
       scrollY: true,
       contentOptions: { flexDirection: "column", width: "auto" },
-      scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
+      scrollbarOptions: scrollbarStyle(),
       horizontalScrollbarOptions: { visible: false },
       // Hidden panes have no size, so the scroll waits until the pane has one.
       onSizeChange: () => this.scrollToLine(),
@@ -62,6 +68,15 @@ export class HitPreview {
     this.root.visible = false;
   }
 
+  /** Draws the preview again in the colours of the mode now in use. */
+  restyle(): void {
+    this.code.syntaxStyle = this.syntax.style;
+    this.code.fg = theme.text;
+    this.lines.fg = theme.muted;
+    this.root.scrollbarOptions = scrollbarStyle();
+    if (this.line !== undefined) this.lines.setLineColors(new Map([[this.line - 1, targetLine()]]));
+  }
+
   get active(): boolean {
     return this.root.visible;
   }
@@ -83,7 +98,7 @@ export class HitPreview {
     if (request !== this.request) return false;
     if (document !== this.document || query !== this.needle) this.present(document, query);
     this.line = line;
-    this.lines.setLineColors(new Map([[line - 1, MATCH_LINE]]));
+    this.lines.setLineColors(new Map([[line - 1, targetLine()]]));
     this.root.visible = true;
     this.scrollToLine();
     return true;

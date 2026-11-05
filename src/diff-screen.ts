@@ -8,7 +8,7 @@ import {
   type TreeSitterClient,
 } from "@opentui/core";
 import { basename, join, posix } from "node:path";
-import { ChangeList, countSegments, statusLetters } from "./changes";
+import { ChangeList, countSegments, statusOf } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError, displayLabel } from "./files";
 import type { DiffScope } from "./footer";
@@ -25,7 +25,7 @@ import {
   type Patch,
   type Repository,
 } from "./git";
-import { styled } from "./styled";
+import { scrollbarStyle, styled } from "./styled";
 import { theme, transparent } from "./theme";
 
 export type DiffView = "unified" | "split";
@@ -86,17 +86,17 @@ function contentKey(files: FilePatch[]): string {
 }
 
 /** Added and removed lines are tinted lightly so the diff reads on any terminal background. */
-const diffColors = {
-  addedBg: "#12281c",
-  removedBg: "#2b1518",
-  contextBg: transparent,
-  addedLineNumberBg: "#173a27",
-  removedLineNumberBg: "#3b1b20",
-  addedSignColor: theme.added,
-  removedSignColor: theme.removed,
-} as const;
-
-const FALLBACK_BAND = "#131519";
+function diffColors() {
+  return {
+    addedBg: theme.addedBg,
+    removedBg: theme.removedBg,
+    contextBg: transparent,
+    addedLineNumberBg: theme.addedGutter,
+    removedLineNumberBg: theme.removedGutter,
+    addedSignColor: theme.added,
+    removedSignColor: theme.removed,
+  };
+}
 
 /**
  * Everything the diff screen needs: the list of changed files for the sidebar, the diffs for the reader, the
@@ -121,7 +121,9 @@ export class DiffScreen {
   private view: DiffView = "unified";
   private scope: DiffScope = "all";
   private wrap = false;
-  private band = FALLBACK_BAND;
+  private band: string = theme.fallbackBackground;
+  /** What the empty-state message says, so it can be drawn again in other colours. */
+  private empty?: { title: string; detail: string };
   /** Fingerprint of the list on screen, so a refresh only redraws it when something actually changed. */
   private signature = "";
   /** Fingerprint of the diffs on screen. */
@@ -167,7 +169,7 @@ export class DiffScreen {
       scrollX: true,
       scrollY: true,
       contentOptions: { flexDirection: "column" },
-      scrollbarOptions: { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } },
+      scrollbarOptions: scrollbarStyle(),
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => this.layoutChanged() },
     });
@@ -235,6 +237,18 @@ export class DiffScreen {
       scope: this.scope,
       showingDiff: this.showingDiff,
     };
+  }
+
+  /** Draws the list and the diffs again in the colours of the mode now in use. Set the new tint first. */
+  restyle(): void {
+    this.list.repaint();
+    this.scroller.scrollbarOptions = scrollbarStyle();
+    if (this.blocks.length)
+      this.show(
+        this.blocks.map(({ change, patch }) => ({ change, patch })),
+        "keep",
+      );
+    else if (this.empty) this.showEmpty(this.empty.title, this.empty.detail);
   }
 
   /** The tint behind each file's header band, matching the sidebar and footer. */
@@ -503,6 +517,7 @@ export class DiffScreen {
   }
 
   private showEmpty(title: string, detail: string): void {
+    this.empty = { title, detail };
     this.clearBlocks();
     this.shownKey = "";
     this.messageTitle.content = styled([{ text: title, fg: theme.text, bold: true }]);
@@ -544,7 +559,7 @@ export class DiffScreen {
       paddingRight: 1,
       backgroundColor: this.band,
     });
-    const { letter, color } = statusLetters[change.kind];
+    const { letter, color } = statusOf(change.kind);
     const folder = posix.dirname(change.path);
     header.add(
       new TextRenderable(context, {
@@ -587,7 +602,7 @@ export class DiffScreen {
       syntaxStyle: this.options.syntax.style,
       treeSitterClient: this.options.syntax.client,
       lineNumberFg: theme.muted,
-      ...diffColors,
+      ...diffColors(),
       onSizeChange: () => this.layoutChanged(),
     });
   }
