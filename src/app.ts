@@ -12,6 +12,7 @@ import { Footer } from "./footer";
 import { PaneHeader, type HeaderBadge } from "./header";
 import { boundaryOf, isPlain, isQuit } from "./keys";
 import { GitMarks, treeRelative } from "./marks";
+import { HitPreview } from "./preview";
 import { createHelp } from "./help";
 import { SidebarResizer } from "./sidebar-resizer";
 import { theme, transparent } from "./theme";
@@ -111,6 +112,9 @@ export class ScouterApp {
   private readonly diffScreen: DiffScreen;
   private readonly finder: FileFinder;
   private readonly search: DocumentSearch;
+  private readonly preview: HitPreview;
+  /** The file name shown in the reader's header while a text search result is previewed, else undefined. */
+  private previewTitle?: string;
   private readonly watcher: BrowseWatcher;
   private readonly marks = new GitMarks();
   private mode: "browse" | "diff" = "browse";
@@ -197,6 +201,7 @@ export class ScouterApp {
     });
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
+    this.preview = new HitPreview(renderer, this.codeView.syntax);
     this.finder = new FileFinder(renderer, {
       browser: this.browser,
       footer: this.footer,
@@ -205,6 +210,7 @@ export class ScouterApp {
       styleOf: (entry) => this.styleOf(entry),
       showTree: (path) => this.renderTree(path),
       pick: (picked, typed) => this.pickFound(picked, typed),
+      preview: (entry, query) => void this.previewHit(entry, query),
       isDestroyed: () => renderer.isDestroyed,
     });
     this.search = new DocumentSearch({
@@ -212,6 +218,7 @@ export class ScouterApp {
       text: () => (this.shown.kind === "text" ? this.shown.document.text : undefined),
       topLine: () => Math.floor(this.viewer.scrollTop),
       scrollToLine: (line) => this.scrollToLine(line),
+      highlight: (query) => this.codeView.setHighlight(query),
     });
     this.watcher = new BrowseWatcher({
       pollMs: options.browsePollMs ?? BROWSE_POLL_MS,
@@ -226,6 +233,7 @@ export class ScouterApp {
     this.viewerPanel.add(this.viewerHeader.root);
     this.viewerPanel.add(this.welcome);
     this.viewerPanel.add(this.viewer);
+    this.viewerPanel.add(this.preview.root);
     this.viewerPanel.add(this.diffScreen.body);
     panes.add(this.browserPanel);
     panes.add(this.sidebar.handle);
@@ -431,6 +439,11 @@ export class ScouterApp {
 
   /** Brings the reader header and the footer in line with whatever the current mode shows. */
   private updateChrome(): void {
+    if (this.previewTitle !== undefined) {
+      this.viewerHeader.setTitle(this.previewTitle);
+      this.viewerHeader.setBadges([{ text: "preview", kind: "pill" }]);
+      return;
+    }
     if (this.mode === "browse") {
       this.viewerHeader.setTitle(this.shown.kind === "none" ? "Reader" : this.shown.title);
       this.updateViewerBadges();
@@ -709,6 +722,11 @@ export class ScouterApp {
 
   private readonly onExplorerActivate = (): void => {
     if (this.renderer.isDestroyed) return;
+    // With the find prompt open a click chooses the row, as Enter does.
+    if (this.finder.active) {
+      this.finder.pick();
+      return;
+    }
     // Opening a file ends with the reader focused, so focusing the sidebar on the way would flash both pane
     // borders (indigo on the sidebar, then on the reader). Only a collapse, which stays in the sidebar, needs
     // focus now; expanding a folder takes it when its contents have loaded.
@@ -746,12 +764,18 @@ export class ScouterApp {
   /** What a key that means the same in every pane and mode does, if it is one. */
   private commandFor(key: KeyEvent): (() => void) | undefined {
     if (key.name === "tab") return () => this.switchPane();
-    if (key.name === "escape") return () => this.focusBrowser();
+    if (key.name === "escape") return () => this.escape();
     if (key.sequence === "?" && isPlain(key)) return () => void (this.help.visible = true);
     if (key.ctrl && !key.meta && (key.name === "left" || key.name === "right")) {
       return () => this.sidebar.nudge(key.name === "left" ? "left" : "right");
     }
     return isPlain(key) && !key.shift ? this.letterCommands.get(key.name) : undefined;
+  }
+
+  /** Esc clears a kept search first, then goes back to the file list. */
+  private escape(): void {
+    if (!this.list.focused && this.search.dismiss()) return;
+    this.focusBrowser();
   }
 
   private switchPane(): void {
@@ -872,6 +896,33 @@ export class ScouterApp {
     else void this.open(picked.path);
   }
 
+  /** Shows the file behind a text search result in the reader's place, or, with none, gives the reader back. */
+  private async previewHit(entry: TreeEntry | undefined, query: string): Promise<void> {
+    const match = entry?.match;
+    if (!entry || !match) {
+      this.endPreview();
+      return;
+    }
+    if (!(await this.preview.show(entry.path, match.line, query)) || this.renderer.isDestroyed) return;
+    this.viewer.visible = false;
+    this.welcome.visible = false;
+    this.previewTitle = displayLabel(basename(entry.path));
+    this.updateChrome();
+  }
+
+  /** The reader shows what it showed before the preview: the open file, or the welcome screen. */
+  private endPreview(): void {
+    if (!this.preview.active) {
+      this.preview.hide();
+      return;
+    }
+    this.preview.hide();
+    this.previewTitle = undefined;
+    this.welcome.visible = !this.hasDocument;
+    this.viewer.visible = this.hasDocument;
+    this.updateChrome();
+  }
+
   /** `/` over the open text file. Rendered Markdown has no lines to find, so it asks for source. */
   private startSearch(): void {
     if (!this.document) return;
@@ -904,8 +955,15 @@ export class ScouterApp {
    * is shown as source. With a `query`, `n` and `p` then step between the lines that match it.
    */
   private async openAt(path: string, line: number, query?: string): Promise<void> {
+    // Set before the file loads, so its first highlight already marks the words: changing them once that is under
+    // way restarts it and the reader loses its place.
+    if (query) this.codeView.setHighlight(query);
     await this.open(path);
-    if (this.renderer.isDestroyed || this.document?.path !== path) return;
+    if (this.renderer.isDestroyed) return;
+    if (this.document?.path !== path) {
+      this.search.syncHighlight();
+      return;
+    }
     if (this.codeView.previewing) this.toggleMarkdownSource();
     this.scrollToLine(line - 1);
     if (query) this.search.seed(query, line - 1);

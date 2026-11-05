@@ -33,6 +33,8 @@ interface FileFinderHost {
   showTree(selectedPath: string): void;
   /** The user chose a row. `typed` is what was typed, empty when Enter was pressed with nothing typed. */
   pick(picked: TreeEntry, typed: string): void;
+  /** The highlighted row is a text search result to look at, or, with undefined, there is none to look at. */
+  preview(entry: TreeEntry | undefined, query: string): void;
   isDestroyed(): boolean;
 }
 
@@ -142,9 +144,15 @@ export class FileFinder {
     else if (key.name === "return") this.pick();
     else if (key.name === "tab") this.switchMode(finding);
     else if (key.name === "backspace") this.type(finding.query.slice(0, -1));
-    else if (key.name === "up" || key.name === "down") this.host.browser.moveSelection(key.name === "up" ? -1 : 1);
+    else if (key.name === "up" || key.name === "down") this.moveHighlight(key.name === "up" ? -1 : 1);
     else if (isTyped(key)) this.type(finding.query + key.sequence);
     return true;
+  }
+
+  private moveHighlight(delta: number): void {
+    this.host.browser.moveSelection(delta);
+    if (this.finding?.mode === "text" && this.finding.text)
+      this.host.preview(this.host.browser.selected(), this.finding.query);
   }
 
   private type(query: string): void {
@@ -195,6 +203,7 @@ export class FileFinder {
   }
 
   private showEmptyPrompt(finding: Finding): void {
+    this.host.preview(undefined, "");
     const hint =
       finding.mode === "files" ? "type to find a file, Tab to search inside files" : "type to search inside files";
     this.bar.content = promptLine(finding.query, hint);
@@ -202,11 +211,13 @@ export class FileFinder {
   }
 
   private showIndexing(finding: Finding): void {
+    this.host.preview(undefined, "");
     this.bar.content = promptLine(finding.query, "indexing…");
     this.host.browser.show([], "");
   }
 
   private showNames(finding: Finding, entries: IndexedEntry[]): void {
+    this.host.preview(undefined, "");
     const { matches, total } = matchEntries(entries, finding.query);
     const rows = matches.map(toTreeEntry);
     this.host.browser.show(rows, rows[0]?.path ?? "", (row) => this.host.styleOf(row));
@@ -217,9 +228,11 @@ export class FileFinder {
   private showText(finding: Finding): void {
     const progress = finding.text;
     if (finding.query.length < MIN_TEXT_QUERY || !progress) {
-      const status = finding.query.length < MIN_TEXT_QUERY ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…";
-      this.bar.content = promptLine(finding.query, status);
+      const short = finding.query.length < MIN_TEXT_QUERY;
+      this.bar.content = promptLine(finding.query, short ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…");
       this.host.browser.show([], "");
+      // A short query matches nothing, but while the next results are on their way the last one stays in view.
+      if (short) this.host.preview(undefined, "");
       return;
     }
     const rows = progress.hits.map(toHitEntry);
@@ -228,6 +241,7 @@ export class FileFinder {
     const selected = rows.some((row) => row.path === kept) ? kept : rows[0]?.path;
     this.host.browser.show(rows, selected ?? "", (row) => this.host.styleOf(row));
     this.bar.content = promptLine(finding.query, textStatus(progress));
+    this.host.preview(this.host.browser.selected(), finding.query);
   }
 
   /** Closes the prompt, showing the tree with `select` (or the row it was opened from) highlighted. */
@@ -238,11 +252,13 @@ export class FileFinder {
     clearTimeout(finding.timer);
     this.finding = undefined;
     this.bar.visible = false;
+    this.host.preview(undefined, "");
     this.host.footer.setPrompt(undefined);
     this.host.showTree(select ?? finding.returnTo ?? this.host.rootPath() ?? "");
   }
 
-  private pick(): void {
+  /** Enter, or a click on a row: hands the highlighted row to the host, which opens it. */
+  pick(): void {
     const typed = this.finding?.query ?? "";
     const picked = this.host.browser.selected();
     this.end(picked?.path);

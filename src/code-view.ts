@@ -12,6 +12,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import type { Document } from "./files";
 import { extraLanguages, registerGrammars } from "./grammars";
+import { MATCH_GROUP, MATCH_STYLE, PLAIN_FILETYPE, markMatches } from "./match-style";
 
 const supportedLanguages = new Set([
   "javascript",
@@ -44,6 +45,8 @@ export class CodeView {
   private document?: Document;
   /** Markdown shows rendered unless the reader asked for its source. */
   private source = false;
+  /** The words a search is looking for, marked wherever they occur in the source. */
+  private needle?: string;
 
   /** `onLayout` fires when the document's rendered size changes: a new file, toggled wrapping, a resize. */
   constructor(
@@ -80,6 +83,7 @@ export class CodeView {
         "markup.italic": { italic: true },
         "markup.raw": { fg: "#a7c7a1" },
         "markup.link": { fg: "#82aaff", underline: true },
+        [MATCH_GROUP]: MATCH_STYLE,
       },
       renderer.nativeScene,
     );
@@ -151,6 +155,13 @@ export class CodeView {
     this.viewer.scrollTo({ x: 0, y: this.viewer.scrollTop });
   }
 
+  /** Marks every occurrence of `query` in the file's source, or, with undefined, none. Rendered Markdown is unmarked. */
+  setHighlight(query: string | undefined): void {
+    if (this.needle === query) return;
+    this.needle = query;
+    this.present();
+  }
+
   /** Whether the open file is Markdown, which can be shown rendered or as source. */
   get isMarkdown(): boolean {
     return this.document !== undefined && languageFor(this.document.path) === "markdown";
@@ -190,7 +201,9 @@ export class CodeView {
     this.preview.visible = this.previewing;
     this.lines.visible = !this.previewing;
     if (this.previewing) this.preview.content = document.text;
-    this.code.filetype = document.lineCount === 0 ? undefined : language;
+    this.code.filetype =
+      document.lineCount === 0 ? undefined : (language ?? (this.needle ? PLAIN_FILETYPE : undefined));
+    this.code.onHighlight = markMatches(this.needle);
     this.code.content = document.lineCount === 0 ? "(empty file)" : document.text.replace(/\n$/, "");
     this.lines.showLineNumbers = document.lineCount > 0;
     this.fitContent();

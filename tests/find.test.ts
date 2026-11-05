@@ -3,7 +3,7 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { ScouterApp } from "../src/app";
-import { createRepository, waitForFrame, waitForText, withDirectory } from "./fixtures";
+import { createRepository, markedWords, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 /** The two footer rows: the status bar, then the key hints. */
 function footer(setup: TestRendererSetup): { status: string; hints: string } {
@@ -106,7 +106,7 @@ test("a deleted file has nothing to open from the changes", () =>
     expect(footer(setup).status).toContain("CHANGES");
   }));
 
-test("/ searches the open file as you type, n and p move between matching lines, and Esc drops the search", () =>
+test("in the search prompt Enter goes to the next match and wraps, and the prompt stays open", () =>
   withDirectory(async (directory) => {
     const path = join(directory, "notes.txt");
     await writeFile(path, numbered(60, { 5: "hit one", 30: "hit two" }));
@@ -123,22 +123,49 @@ test("/ searches the open file as you type, n and p move between matching lines,
     expect(setup.captureCharFrame()).toContain("5  hit one");
 
     setup.mockInput.pressEnter();
-    await setup.renderOnce();
-    expect(footer(setup).status).toContain("READER");
-    expect(footer(setup).status).toContain("/hit  1 of 2");
+    await waitForText(setup, "/hit  2 of 2");
+    expect(setup.captureCharFrame()).toContain("30  hit two");
+    expect(footer(setup).status).toContain("SEARCH");
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "/hit  1 of 2");
+    setup.mockInput.pressArrow("up");
+    await waitForText(setup, "/hit  2 of 2");
+    setup.mockInput.pressArrow("down");
+    await waitForText(setup, "/hit  1 of 2");
+    expect(footer(setup).status).toContain("SEARCH");
+  }));
 
+test("Esc closes the search prompt but keeps the matches for n and p, and a second Esc clears them", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "notes.txt");
+    await writeFile(path, numbered(60, { 5: "hit one", 30: "hit two" }));
+    await using setup = await createTestRenderer({ width: 100, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("hit");
+    await waitForFrame(setup, () => markedWords(setup).length === 1, "the match marked");
+
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "READER");
+    expect(footer(setup).status).toContain("/hit  1 of 2");
+    expect(markedWords(setup)).toEqual(["hit"]);
+
+    setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("n");
     await waitForText(setup, "/hit  2 of 2");
     expect(setup.captureCharFrame()).toContain("30  hit two");
-    setup.mockInput.pressKey("n");
-    await waitForText(setup, "/hit  1 of 2");
     setup.mockInput.pressKey("p");
-    await waitForText(setup, "/hit  2 of 2");
+    await waitForText(setup, "/hit  1 of 2");
 
-    setup.mockInput.pressKey("/");
     setup.mockInput.pressEscape();
-    await setup.renderOnce();
-    expect(footer(setup).status).not.toContain("/hit");
+    await waitForFrame(setup, () => !footer(setup).status.includes("/hit"), "the search to clear");
+    expect(markedWords(setup)).toEqual([]);
+    expect(footer(setup).status).toContain("READER");
+
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "FILES");
   }));
 
 test("search says where it cannot work, on a rendered Markdown file", () =>
@@ -163,7 +190,8 @@ test("a kept search follows the file when it is saved, so n lands on the new mat
     await setup.renderOnce();
     setup.mockInput.pressKey("/");
     await setup.mockInput.typeText("hit");
-    setup.mockInput.pressEnter();
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "READER");
     await waitForText(setup, "/hit  1 of 2");
 
     await writeFile(path, numbered(60, { 45: "hit only" }));
@@ -182,7 +210,8 @@ test("a kept search runs again on the next file opened instead of keeping the ol
     await setup.renderOnce();
     setup.mockInput.pressKey("/");
     await setup.mockInput.typeText("hit");
-    setup.mockInput.pressEnter();
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "READER");
     await waitForText(setup, "/hit  1 of 2");
 
     await app.open(join(directory, "b.txt"));
@@ -279,4 +308,122 @@ test("a text result in a Markdown file opens its source at that line, not the re
     setup.mockInput.pressEnter();
     await waitForText(setup, "32  the needle is here");
     expect(footer(setup).status).toContain("READER");
+  }));
+
+test("the reader previews the highlighted text result, follows ↑ ↓, and Esc gives the reader back", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "app.ts"), numbered(60, { 5: "const needle = 1;", 50: "needle again" }));
+    await using setup = await createTestRenderer({ width: 120, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Select a file");
+
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "2 matches");
+    await waitForText(setup, "5  const needle = 1;");
+    expect(setup.captureCharFrame()).toContain("preview");
+    expect(setup.captureCharFrame()).not.toContain("Select a file");
+
+    setup.mockInput.pressArrow("down");
+    await waitForText(setup, "50  needle again");
+    expect(footer(setup).status).toContain("TEXT");
+
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "Select a file");
+    expect(setup.captureCharFrame()).not.toContain("50  needle again");
+    expect(setup.captureCharFrame()).not.toContain("preview");
+  }));
+
+test("closing the preview puts back the file that was open, untouched", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "open.txt"), numbered(30, { 3: "the open file" }));
+    await writeFile(join(directory, "other.txt"), `${numbered(30, { 20: "other has needle" })}`);
+    await using setup = await createTestRenderer({ width: 120, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "open.txt"));
+    await waitForText(setup, "3  the open file");
+
+    setup.mockInput.pressTab();
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "20  other has needle");
+    expect(setup.captureCharFrame()).not.toContain("3  the open file");
+
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "3  the open file");
+    expect(setup.captureCharFrame()).not.toContain("other has needle");
+    expect(setup.captureCharFrame()).not.toContain("preview");
+  }));
+
+test("clicking a text result opens it at its line, as Enter does", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "app.ts"), numbered(60, { 45: "needle far down" }));
+    await using setup = await createTestRenderer({ width: 120, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "app.ts:45");
+    const row = setup
+      .captureCharFrame()
+      .split("\n")
+      .findIndex((line) => line.includes("app.ts:45"));
+    await setup.mockMouse.click(6, row);
+    await waitForText(setup, "READER");
+    await waitForText(setup, "45  needle far down");
+    expect(footer(setup).status).toContain("/needle  1 of 1");
+  }));
+
+test("a kept search marks every occurrence in the open file, in plain text and in code, and Esc clears them", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "notes.txt"), "first\nthe Needle and a needle\nlast\n");
+    await writeFile(join(directory, "code.ts"), "const needle = 1; // needle\nconst other = 2;\n");
+    await using setup = await createTestRenderer({ width: 120, height: 12 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "notes.txt"));
+    await waitForText(setup, "the Needle and a needle");
+    expect(markedWords(setup)).toEqual([]);
+
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("needle");
+    await waitForFrame(setup, () => markedWords(setup).length === 2, "both words marked");
+    expect(markedWords(setup)).toEqual(["Needle", "needle"]);
+    setup.mockInput.pressEnter();
+    await setup.renderOnce();
+    expect(markedWords(setup)).toEqual(["Needle", "needle"]);
+
+    await app.open(join(directory, "code.ts"));
+    await waitForText(setup, "const other");
+    await waitForFrame(setup, () => markedWords(setup).length === 2, "marks in the code file");
+    expect(markedWords(setup)).toEqual(["needle", "needle"]);
+
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressEscape();
+    await waitForFrame(setup, () => markedWords(setup).length === 0, "the marks to go");
+  }));
+
+test("the preview and the file opened from a text result mark the words that were searched for", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "app.ts"), numbered(30, { 6: "const needle = needle + 1;" }));
+    await using setup = await createTestRenderer({ width: 120, height: 12 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    setup.mockInput.pressTab();
+    await setup.mockInput.typeText("needle");
+    await waitForText(setup, "6  const needle = needle + 1;");
+    await waitForFrame(setup, () => markedWords(setup).length === 2, "the preview's marks");
+    expect(markedWords(setup)).toEqual(["needle", "needle"]);
+
+    setup.mockInput.pressEnter();
+    await waitForText(setup, "READER");
+    await waitForFrame(setup, () => markedWords(setup).length === 2, "the opened file's marks");
+    expect(markedWords(setup)).toEqual(["needle", "needle"]);
   }));

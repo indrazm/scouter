@@ -58,8 +58,9 @@ const promptHints: Record<FooterPrompt, Hint[]> = {
   ],
   reader: [
     ["type", "search"],
-    ["Enter", "keep"],
-    ["Esc", "cancel"],
+    ["Enter", "next"],
+    ["↑ ↓", "prev / next"],
+    ["Esc", "close"],
   ],
 };
 

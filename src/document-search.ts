@@ -9,6 +9,8 @@ interface DocumentSearchHost {
   /** The first line (counted from zero) at the top of the reader. */
   topLine(): number;
   scrollToLine(line: number): void;
+  /** The words to mark in the file wherever they occur, or undefined to mark none. */
+  highlight(query: string | undefined): void;
 }
 
 interface Search {
@@ -19,7 +21,10 @@ interface Search {
   at: number;
 }
 
-/** `/` over the open text file: find lines as you type, keep the search for `n` and `p`, drop it with Esc. */
+/**
+ * `/` over the open text file: find lines as you type, Enter for the next match, Esc to close the prompt and keep the
+ * matches for `n` and `p`. A second Esc, with the prompt closed, clears them.
+ */
 export class DocumentSearch {
   private editing = false;
   private search?: Search;
@@ -35,13 +40,18 @@ export class DocumentSearch {
     this.show();
   }
 
-  /** Keys while the prompt is open. Enter keeps the search for n and p; Esc drops it. Other chords are left alone. */
+  /**
+   * Keys while the prompt is open. Enter (or Down) goes to the next match and Shift+Enter (or Up) to the previous one;
+   * Esc closes the prompt and keeps the matches. Other chords are left alone.
+   */
   handleKey(key: KeyEvent): boolean {
     const search = this.search;
     if (!this.editing || !search || !isPlain(key)) return false;
     key.preventDefault();
-    if (key.name === "escape") this.cancel();
-    else if (key.name === "return") this.keep();
+    if (key.name === "escape") this.close(search);
+    else if (key.name === "return") this.step(key.shift ? -1 : 1);
+    else if (key.name === "down") this.step(1);
+    else if (key.name === "up") this.step(-1);
     else if (key.name === "backspace") this.type(search.query.slice(0, -1));
     else if (isTyped(key)) this.type(search.query + key.sequence);
     return true;
@@ -77,22 +87,37 @@ export class DocumentSearch {
     this.show();
   }
 
+  /** Marks the words of the kept search, or none, after something else set them. */
+  syncHighlight(): void {
+    this.host.highlight(this.search?.query || undefined);
+  }
+
   /** A file that cannot be searched is on screen: nothing is kept. */
   clear(): void {
     this.editing = false;
     this.search = undefined;
     this.host.footer.setPrompt(undefined);
+    this.host.highlight(undefined);
   }
 
-  private cancel(): void {
-    this.clear();
-    this.host.footer.clearMessage();
-  }
-
-  private keep(): void {
+  /** Esc in the prompt: nothing typed means nothing to keep. */
+  private close(search: Search): void {
+    if (!search.query) {
+      this.clear();
+      this.host.footer.clearMessage();
+      return;
+    }
     this.editing = false;
     this.host.footer.setPrompt(undefined);
     this.show();
+  }
+
+  /** Esc with the prompt closed: drops the kept matches. False when there were none, so Esc means what it always does. */
+  dismiss(): boolean {
+    if (!this.search || this.editing) return false;
+    this.clear();
+    this.host.footer.clearMessage();
+    return true;
   }
 
   /** Recounts the lines matching what is typed, and jumps to the first one at or below the top of the reader. */
@@ -139,5 +164,6 @@ export class DocumentSearch {
         ? `  ${search.at + 1} of ${search.lines.length}`
         : "  no matches";
     this.host.footer.setMessage(`/${search.query}${count}`);
+    this.host.highlight(search.query || undefined);
   }
 }

@@ -22,7 +22,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
     "Reader",
     [
       ["j k", "scroll"],
-      ["/", "search the file, then n p"],
+      ["/", "search the file; Enter next, Esc keeps it for n p"],
       ["space b ^d ^u", "page / half a page"],
       ["g G", "top / bottom"],
       ["w", "wrap long lines"],
@@ -44,7 +44,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
     "Everywhere",
     [
       ["Tab", "switch panes"],
-      ["Esc", "back to the file list"],
+      ["Esc", "clear a search, or back to the file list"],
       ["?", "this help (any key closes)"],
       ["q Ctrl+c", "quit"],
     ],

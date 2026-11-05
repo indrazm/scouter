@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxRenderable, RGBA, type Renderable } from "@opentui/core";
+import type { TestRendererSetup } from "@opentui/core/testing";
 
 /** Records every change to a pane's border color, leaving the real getter and setter in charge. */
 export function watchBorder(root: Renderable, id: string, writes: string[]): void {
@@ -152,4 +153,14 @@ export function solidPng(width: number, height: number, [red, green, blue]: [num
     pngChunk("IDAT", pixels),
     pngChunk("IEND", Buffer.alloc(0)),
   ]);
+}
+
+/** The words on screen that a search has marked: those drawn on the match background, in reading order. */
+export function markedWords(setup: TestRendererSetup): string[] {
+  const [red, green, blue] = [229, 184, 128];
+  return setup
+    .captureSpans()
+    .lines.flatMap((line) => line.spans)
+    .filter((span) => span.bg.buffer[0] === red && span.bg.buffer[1] === green && span.bg.buffer[2] === blue)
+    .map((span) => span.text);
 }
