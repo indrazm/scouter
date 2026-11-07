@@ -21,24 +21,25 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 
 ## Keys
 
-| Key             | Does                                   |
-| --------------- | -------------------------------------- |
-| `j` `k` `h` `l` | Move, open, go back                    |
-| `/`             | Find a file (`Tab`: text in all files) |
-| `n` `N` `p`     | Next / previous match or change        |
-| `Tab`           | Switch panes                           |
-| `d`             | Show / hide changes                    |
-| `a`             | All files / one file                   |
-| `s`             | Split / unified diff (wide)            |
-| `o`             | Open the changed file at its change    |
-| `m`             | Markdown: rendered / source            |
-| `w`             | Wrap long lines                        |
-| `Space` `b`     | Page down / up                         |
-| `gg` `G`        | Top / bottom                           |
-| `120G`          | Go to line 120                         |
-| `-`             | Open the folder above                  |
-| `?`             | Every key                              |
-| `q`             | Quit                                   |
+| Key              | Does                                   |
+| ---------------- | -------------------------------------- |
+| `j` `k` `h` `l`  | Move, open, go back                    |
+| `/`              | Find a file (`Tab`: text in all files) |
+| `n` `N` `p`      | Next / previous match or change        |
+| `Tab`            | Switch panes                           |
+| `Ctrl+o` `Alt+i` | Jump back / forward through places     |
+| `d`              | Show / hide changes                    |
+| `a`              | All files / one file                   |
+| `s`              | Split / unified diff (wide)            |
+| `o`              | Open the changed file at its change    |
+| `m`              | Markdown: rendered / source            |
+| `w`              | Wrap long lines                        |
+| `Space` `b`      | Page down / up                         |
+| `gg` `G`         | Top / bottom                           |
+| `120G`           | Go to line 120                         |
+| `-`              | Open the folder above                  |
+| `?`              | Every key                              |
+| `q`              | Quit                                   |
 
 ## Update or remove
 

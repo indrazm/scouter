@@ -35,6 +35,10 @@ export class DocumentSearch {
   }
 
   /** Keys while the prompt is open. Ctrl and Alt chords are left alone. */
+  get prompting(): boolean {
+    return this.editing;
+  }
+
   handleKey(key: KeyEvent): boolean {
     const search = this.search;
     if (!this.editing || !search || !isPlain(key)) return false;

@@ -13,6 +13,7 @@ import { PaneHeader, type HeaderBadge } from "./header";
 import { boundaryOf, isPlain, isQuit, scrollByKey } from "./keys";
 import { GitMarks, treeRelative } from "./marks";
 import { HitPreview } from "./preview";
+import { JumpHistory, type Jump } from "./jump-history";
 import { createHelp } from "./help";
 import { SidebarResizer } from "./sidebar-resizer";
 import { scrollbarStyle } from "./styled";
@@ -44,7 +45,7 @@ export interface ScouterAppOptions {
 
 type Shown =
   | { kind: "none" }
-  | { kind: "image"; title: string }
+  | { kind: "image"; title: string; path: string }
   | {
       kind: "text";
       document: Document;
@@ -84,6 +85,7 @@ export class ScouterApp {
   private readonly watcher: BrowseWatcher;
   private readonly systemTheme: SystemThemeWatcher;
   private readonly marks = new GitMarks();
+  private readonly jumps = new JumpHistory();
   private mode: "browse" | "diff" = "browse";
   private paneBeforeDiff: "list" | "reader" = "list";
   /** Borders are rewritten only when focus actually moves, so nothing flickers. */
@@ -278,17 +280,51 @@ export class ScouterApp {
   }
 
   async open(path: string): Promise<void> {
+    await this.show(path, () => this.jumps.leave(this.here()));
+  }
+
+  /** Opens `path` in the reader. `beforeOpen` runs only once the read is accepted, and `top` restores a scroll position. */
+  private async show(path: string, beforeOpen?: () => void, top = 0): Promise<void> {
     if (this.renderer.isDestroyed) return;
     await this.runLoading(
       async () => {
         this.viewerHeader.setNotice(undefined);
         this.footer.setMessage("Loading…");
+        beforeOpen?.();
         await this.openPath(resolve(path));
+        if (top > 0 && this.document && !this.renderer.isDestroyed) this.scrollToTop(top);
       },
       // Nothing opened, so the click that led here belongs to the sidebar.
       () => this.focusBrowser(),
     );
     void this.watcher.refresh();
+  }
+
+  private here(): Jump | undefined {
+    if (this.shown.kind === "none") return undefined;
+    if (this.shown.kind === "image") return { path: this.shown.path, top: 0 };
+    return { path: this.shown.document.path, top: Math.floor(this.viewer.scrollTop) };
+  }
+
+  /** Ctrl+o goes back and Alt+i forward; Tab cannot be used for forward, since terminals send it as Ctrl+i. */
+  private async jump(direction: "back" | "forward"): Promise<void> {
+    if (this.renderer.isDestroyed) return;
+    if (this.loading) return this.refuseWhileLoading();
+    const here = this.here();
+    const can = direction === "back" ? this.jumps.canGoBack : this.jumps.canGoForward;
+    if (!can) {
+      this.footer.setMessage(direction === "back" ? "No earlier place to go back to." : "No later place to go to.");
+      return;
+    }
+    const target = direction === "back" ? this.jumps.back(here) : this.jumps.forward(here);
+    if (!target) return;
+    if (this.mode === "diff") this.leaveDiff();
+    await this.show(target.path, undefined, target.top);
+  }
+
+  private scrollToTop(top: number): void {
+    this.viewer.scrollTo({ x: 0, y: top });
+    this.updatePosition();
   }
 
   /** Runs `task` as the one read in progress; a second one is refused. */
@@ -364,7 +400,7 @@ export class ScouterApp {
   private showImage(file: ImageFile, details: ImageDetails): void {
     this.codeView.hide();
     this.search.clear();
-    this.shown = { kind: "image", title: displayLabel(basename(file.path)) };
+    this.shown = { kind: "image", title: displayLabel(basename(file.path)), path: file.path };
     this.revealReader();
     this.imageView.show(file);
     this.footer.setLocation(file.path);
@@ -748,6 +784,10 @@ export class ScouterApp {
     if (key.ctrl && !key.meta && (key.name === "left" || key.name === "right")) {
       return () => this.sidebar.nudge(key.name === "left" ? "left" : "right");
     }
+    // Typing in a find or search prompt keeps these keys for the prompt, so the reader does not move under it.
+    const typing = this.finder.active || this.search.prompting;
+    if (!typing && key.ctrl && !key.meta && key.name === "o") return () => void this.jump("back");
+    if (!typing && key.meta && !key.ctrl && key.name === "i") return () => void this.jump("forward");
     return isPlain(key) && !key.shift ? this.letterCommands.get(key.name) : undefined;
   }
 

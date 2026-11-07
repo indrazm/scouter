@@ -45,6 +45,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
     "Everywhere",
     [
       ["Tab", "switch panes"],
+      ["Ctrl+o Alt+i", "jump back / forward through opened places"],
       ["Esc", "clear a search, or back to the file list"],
       ["?", "this help (any key closes)"],
       ["q Ctrl+c", "quit"],
