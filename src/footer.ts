@@ -134,6 +134,7 @@ function hintsFor(
         ["d", "changes"],
         ["w", "wrap"],
         ["^←→", "resize"],
+        ["^o alt+i", "jump"],
         ["?", "help"],
         ["q", "quit"],
       ]
@@ -146,6 +147,7 @@ function hintsFor(
         ...view,
         ...(rendered ? [] : [["/", "search"] as Hint]),
         ["d", "changes"],
+        ["^o alt+i", "jump"],
         ...(rendered ? [] : [["w", "wrap"] as Hint]),
         ["?", "help"],
         ["q", "quit"],
