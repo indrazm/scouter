@@ -73,6 +73,12 @@ export class DocumentSearch {
     this.show();
   }
 
+  /** The line the kept search is on, for `zz` to centre. */
+  currentLine(): number | undefined {
+    const search = this.search;
+    return search?.lines[search.at];
+  }
+
   /** The file on screen changed: search it again without moving the reader. */
   refresh(): void {
     const search = this.search;

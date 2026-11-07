@@ -92,6 +92,8 @@ export class ScouterApp {
   private focusPane?: "list" | "reader";
   private shown: Shown = { kind: "none" };
   private wrap = false;
+  /** The first `z` of `zz` was typed in the reader and the next key decides. */
+  private zPending = false;
 
   private count = 0;
   private readonly letterCommands = new Map<string, () => void>([
@@ -753,6 +755,8 @@ export class ScouterApp {
     this.viewerHeader.setNotice(undefined);
     // An open prompt takes every typed key first, so typing "q" or "d" searches instead of quitting or leaving.
     if (this.finder.handleKey(key) || this.search.handleKey(key)) return;
+    const afterZ = this.zPending;
+    this.zPending = false;
     if (isQuit(key)) {
       key.preventDefault();
       this.renderer.destroy();
@@ -772,7 +776,7 @@ export class ScouterApp {
       return;
     }
     if (this.mode === "diff" && this.handleDiffKey(key)) return;
-    if (!this.list.focused) this.handleViewerKey(key, count);
+    if (!this.list.focused) this.handleViewerKey(key, count, afterZ);
     else if (this.mode === "diff") this.handleChangesKey(key);
     else this.handleBrowserKey(key);
   };
@@ -877,10 +881,11 @@ export class ScouterApp {
     return count;
   }
 
-  private handleViewerKey(key: KeyEvent, count: number): void {
+  private handleViewerKey(key: KeyEvent, count: number, afterZ: boolean): void {
     if (key.meta) return;
     if (scrollByKey(this.reader, key) || key.ctrl) return;
     if (this.mode === "browse" && this.handleSearchKeyInReader(key)) return;
+    if (this.mode === "browse" && this.handleMotionInReader(key, afterZ)) return;
     const edge = boundaryOf(key);
     if (!edge) return;
     key.preventDefault();
@@ -895,6 +900,50 @@ export class ScouterApp {
     else return false;
     key.preventDefault();
     return true;
+  }
+
+  /** `{` and `}` move by paragraph; `z` then `z` centres. Browse only: the diff moves by hunk instead. */
+  private handleMotionInReader(key: KeyEvent, afterZ: boolean): boolean {
+    if (!isPlain(key)) return false;
+    if (afterZ) {
+      if (key.name !== "z" || key.shift) return false;
+      key.preventDefault();
+      this.centreReader();
+      return true;
+    }
+    if (key.name === "z" && !key.shift) {
+      key.preventDefault();
+      this.zPending = true;
+      return true;
+    }
+    if (key.sequence !== "{" && key.sequence !== "}") return false;
+    key.preventDefault();
+    this.moveByParagraph(key.sequence === "}" ? 1 : -1);
+    return true;
+  }
+
+  /** Blank lines bound paragraphs. Stops at the top or bottom when there is no further one. */
+  private moveByParagraph(direction: 1 | -1): void {
+    if (!this.document) return;
+    if (this.codeView.previewing) {
+      this.footer.setMessage("Press m to move by paragraph in this Markdown file's source.");
+      return;
+    }
+    const lines = this.document.text.split("\n");
+    const top = Math.floor(this.viewer.scrollTop);
+    const target =
+      direction > 0
+        ? lines.findIndex((line, index) => index > top && line.trim() === "")
+        : lines.findLastIndex((line, index) => index < top && line.trim() === "");
+    // The blank line goes to the top, not the middle: the next press looks for blank lines below or above that line.
+    this.viewer.scrollTo(target < 0 ? (direction > 0 ? Infinity : 0) : target);
+    this.updatePosition();
+  }
+
+  /** The kept search's match when there is one, otherwise the line in the middle of the view. */
+  private centreReader(): void {
+    const match = this.codeView.previewing ? undefined : this.search.currentLine();
+    this.scrollToLine(match ?? Math.floor(this.viewer.scrollTop + this.viewer.viewport.height / 2));
   }
 
   private startFind(): void {
@@ -949,7 +998,7 @@ export class ScouterApp {
   }
 
   private scrollToLine(line: number): void {
-    this.viewer.scrollTo({ x: 0, y: Math.max(0, line - Math.floor(this.viewer.viewport.height / 3)) });
+    this.viewer.scrollTo({ x: 0, y: Math.max(0, line - Math.floor(this.viewer.viewport.height / 2)) });
     this.updatePosition();
   }
 

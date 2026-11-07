@@ -26,6 +26,8 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
       ["space b ^d ^u", "page / half a page"],
       ["gg G", "top / bottom"],
       ["120G", "go to line 120"],
+      ["{ }", "previous / next paragraph"],
+      ["z z", "centre the match, or the middle line"],
       ["w", "wrap long lines"],
       ["m", "Markdown: rendered / source"],
     ],
