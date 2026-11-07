@@ -18,7 +18,7 @@ interface Search {
   at: number;
 }
 
-/** `/` over the open text file. Esc closes the prompt and keeps the matches for `n` and `p`; a second Esc clears them. */
+/** `/` over the open text file. Esc closes the prompt and keeps the matches for `n` and `N`; a second Esc clears them. */
 export class DocumentSearch {
   private editing = false;
   private search?: Search;

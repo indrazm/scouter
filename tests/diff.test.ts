@@ -136,7 +136,7 @@ test("shows every changed file's diff stacked by default, and returns to the fil
     setup.mockInput.pressTab();
     await setup.renderOnce();
     expect(footer(setup).status).toContain("DIFF");
-    expect(footer(setup).hints).toContain("n p hunk");
+    expect(footer(setup).hints).toContain("n N hunk");
 
     setup.mockInput.pressKey("s");
     await setup.renderOnce();
@@ -191,6 +191,37 @@ test("n and p step through the hunks of every file in order", () =>
     for (let step = 0; step < 8; step += 1) setup.mockInput.pressKey("p");
     await setup.renderOnce();
     expect(scroller(setup).scrollTop).toBe(0);
+  }));
+
+test("N steps back through the hunks, the same as p", () =>
+  withDirectory(async (directory) => {
+    const names = ["a.txt", "b.txt", "c.txt"];
+    await createRepository(directory, Object.fromEntries(names.map((name) => [name, numbered(100)])));
+    await Promise.all(
+      names.map((name) => writeFile(join(directory, name), numbered(100, { 2: `${name} early`, 90: `${name} late` }))),
+    );
+    await using setup = await createTestRenderer({ width: 100, height: 12 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "6 hunks");
+    setup.mockInput.pressTab();
+    await setup.renderOnce();
+
+    for (let step = 0; step < 6; step += 1) setup.mockInput.pressKey("n");
+    await setup.renderOnce();
+    const last = scroller(setup).scrollTop;
+    setup.mockInput.pressKey("N");
+    await setup.renderOnce();
+    const before = scroller(setup).scrollTop;
+    expect(before).toBeLessThan(last);
+    setup.mockInput.pressKey("p");
+    await setup.renderOnce();
+    expect(scroller(setup).scrollTop).toBeLessThan(before);
+    setup.mockInput.pressKey("n");
+    await setup.renderOnce();
+    expect(scroller(setup).scrollTop).toBe(before);
   }));
 
 test("the highlight follows the reader as it scrolls, and a pick in the list scrolls the reader", () =>
