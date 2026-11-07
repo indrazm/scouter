@@ -34,6 +34,8 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 | `o`              | Open the changed file at its change    |
 | `m`              | Markdown: rendered / source            |
 | `w`              | Wrap long lines                        |
+| `{` `}`          | Previous / next paragraph              |
+| `zz`             | Centre the match                       |
 | `Space` `b`      | Page down / up                         |
 | `gg` `G`         | Top / bottom                           |
 | `120G`           | Go to line 120                         |

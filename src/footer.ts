@@ -142,6 +142,8 @@ function hintsFor(
         ["j k", "scroll"],
         ...(rendered ? [] : pan),
         ["gg G", "top/bottom"],
+        ...(rendered ? [] : [["{ }", "paragraph"] as Hint]),
+        ["z z", "centre"],
         ["^d ^u", "page"],
         ["Tab", "files"],
         ...view,
