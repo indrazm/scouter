@@ -57,7 +57,7 @@ test("the welcome screen names the keys a new reader needs", () =>
 test("? shows every key, and any key closes it again", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "a.txt"), "hello\n");
-    await using setup = await createTestRenderer({ width: 100, height: 34 });
+    await using setup = await createTestRenderer({ width: 100, height: 38 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
     await setup.renderOnce();
