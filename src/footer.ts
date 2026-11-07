@@ -101,14 +101,14 @@ function hintsFor(
         ]
       : [
           ["j k", "scroll"],
-          ["n p", "hunk"],
+          ["n N", "hunk"],
           ["o", "open file"],
           ["s", "split"],
           other,
           ["Tab", "files"],
           ["w", "wrap"],
           ...pan,
-          ["g G", "top/bottom"],
+          ["gg G", "top/bottom"],
           ["^d ^u", "page"],
           ["d", "back"],
           ["?", "help"],
@@ -140,7 +140,7 @@ function hintsFor(
     : [
         ["j k", "scroll"],
         ...(rendered ? [] : pan),
-        ["g G", "top/bottom"],
+        ["gg G", "top/bottom"],
         ["^d ^u", "page"],
         ["Tab", "files"],
         ...view,
@@ -173,6 +173,7 @@ export class Footer {
   private readonly positions: Record<FooterMode, string | undefined> = { browse: undefined, diff: undefined };
   private wrap = false;
   private prompt?: FooterPrompt;
+  private pending?: number;
 
   constructor(private readonly renderer: CliRenderer) {
     this.root = new BoxRenderable(renderer, {
@@ -279,6 +280,13 @@ export class Footer {
     this.render();
   }
 
+  /** A count typed in the reader and not yet used, such as 120 before G. */
+  setPending(count: number | undefined): void {
+    if (count === this.pending) return;
+    this.pending = count;
+    this.render();
+  }
+
   /** What is typed shows in the file list's find bar, or, for the reader's search, as the status row's message. */
   setPrompt(prompt: FooterPrompt | undefined): void {
     if (prompt === this.prompt) return;
@@ -352,6 +360,7 @@ export class Footer {
     }
     const position = this.positions[this.mode];
     if (position) facts.push({ key: "position", segments: [{ text: position, fg: theme.text }] });
+    if (this.pending) facts.push({ key: "count", segments: [{ text: `${this.pending}`, fg: theme.accentSoft }] });
     return facts;
   }
 
@@ -360,7 +369,7 @@ export class Footer {
     const facts = this.candidateFacts();
     const width = (): number =>
       facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
-    for (const key of ["encoding", "language", "files", "lines", "size", "hunks", "counts", "position"]) {
+    for (const key of ["encoding", "language", "files", "lines", "size", "hunks", "counts", "position", "count"]) {
       if (width() <= columns) break;
       const index = facts.findIndex((fact) => fact.key === key);
       if (index >= 0) facts.splice(index, 1);

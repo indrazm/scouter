@@ -32,6 +32,8 @@ import { ImageView, describeImage, type ImageDetails } from "./image-view";
 import { GitError } from "./git";
 
 const DIFF_POLL_MS = 2000;
+/** Keeps a typed count far below the line numbers of any real file. */
+const MAX_COUNT = 99_999_999;
 const BROWSE_POLL_MS = 2000;
 
 export interface ScouterAppOptions {
@@ -89,6 +91,7 @@ export class ScouterApp {
   private shown: Shown = { kind: "none" };
   private wrap = false;
 
+  private count = 0;
   private readonly letterCommands = new Map<string, () => void>([
     ["w", () => this.toggleWrap()],
     ["m", () => this.toggleMarkdownSource()],
@@ -724,6 +727,8 @@ export class ScouterApp {
       this.help.visible = false;
       return;
     }
+    if (this.absorbCount(key)) return;
+    const count = this.takeCount();
     const command = this.commandFor(key);
     if (command) {
       key.preventDefault();
@@ -731,7 +736,7 @@ export class ScouterApp {
       return;
     }
     if (this.mode === "diff" && this.handleDiffKey(key)) return;
-    if (!this.list.focused) this.handleViewerKey(key);
+    if (!this.list.focused) this.handleViewerKey(key, count);
     else if (this.mode === "diff") this.handleChangesKey(key);
     else this.handleBrowserKey(key);
   };
@@ -763,8 +768,8 @@ export class ScouterApp {
     else if (key.name === "a") this.diffScreen.toggleScope();
     else if (key.name === "r") void this.loadDiff(() => this.onDiffChange());
     else if (key.name === "o") void this.openChanged();
-    else if (key.name === "n" || key.sequence === "]") this.diffScreen.jumpHunk(1);
-    else if (key.name === "p" || key.sequence === "[") this.diffScreen.jumpHunk(-1);
+    else if ((key.name === "n" && !key.shift) || key.sequence === "]") this.diffScreen.jumpHunk(1);
+    else if (key.name === "n" || key.name === "p" || key.sequence === "[") this.diffScreen.jumpHunk(-1);
     else return false;
     key.preventDefault();
     return true;
@@ -811,19 +816,42 @@ export class ScouterApp {
     this.browser.selectBoundary(edge);
   }
 
-  private handleViewerKey(key: KeyEvent): void {
+  /** Digits typed in the reader's text before a motion, such as 120 in 120G. Only a text file in the browse view takes them. */
+  private absorbCount(key: KeyEvent): boolean {
+    const digit = /^[0-9]$/.test(key.sequence) && isPlain(key) ? Number(key.sequence) : undefined;
+    if (digit === undefined || this.list.focused || this.mode !== "browse" || !this.readerReady) return false;
+    if (this.codeView.previewing || (!this.count && !digit)) return false;
+    key.preventDefault();
+    this.count = Math.min(this.count * 10 + digit, MAX_COUNT);
+    this.footer.setPending(this.count);
+    return true;
+  }
+
+  /** The count typed so far, which the next key uses or drops. */
+  private takeCount(): number {
+    const count = this.count;
+    if (count) {
+      this.count = 0;
+      this.footer.setPending(undefined);
+    }
+    return count;
+  }
+
+  private handleViewerKey(key: KeyEvent, count: number): void {
     if (key.meta) return;
     if (scrollByKey(this.reader, key) || key.ctrl) return;
     if (this.mode === "browse" && this.handleSearchKeyInReader(key)) return;
     const edge = boundaryOf(key);
     if (!edge) return;
     key.preventDefault();
-    this.reader.scrollTo(edge === "end" ? Infinity : 0);
+    if (edge === "end" && count) this.scrollToLine(count - 1);
+    else this.reader.scrollTo(edge === "end" ? Infinity : 0);
   }
 
   private handleSearchKeyInReader(key: KeyEvent): boolean {
     if (key.name === "/") this.startSearch();
-    else if (key.name === "n" || key.name === "p") this.search.step(key.name === "n" ? 1 : -1);
+    else if (key.name === "n" && !key.shift) this.search.step(1);
+    else if (key.name === "n" || key.name === "p") this.search.step(-1);
     else return false;
     key.preventDefault();
     return true;

@@ -146,6 +146,37 @@ test("scrolls single lines and jumps to the bottom without double-handling arrow
     expect(setup.captureCharFrame()).toContain("1  content-1");
   }));
 
+test("gg and G go to the top and bottom, and a number before G goes to that line, shown in the footer while typed", () =>
+  withDirectory(async (directory) => {
+    await writeFile(
+      join(directory, "long.txt"),
+      Array.from({ length: 200 }, (_, index) => `content-${index + 1}`).join("\n"),
+    );
+    await using setup = await createTestRenderer({ width: 100, height: 15 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(join(directory, "long.txt"));
+    await setup.renderOnce();
+    expect(footerRows(setup)[1]).toContain("gg G");
+
+    setup.mockInput.pressKey("G");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("200  content-200");
+    setup.mockInput.pressKey("g");
+    setup.mockInput.pressKey("g");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("1  content-1");
+
+    setup.mockInput.pressKey("1");
+    setup.mockInput.pressKey("2");
+    setup.mockInput.pressKey("0");
+    await setup.renderOnce();
+    expect(footerRows(setup)[0]).toMatch(/Top\s+120\s*$/);
+    setup.mockInput.pressKey("G");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("120  content-120");
+    expect(footerRows(setup)[0]).not.toMatch(/120\s*$/);
+  }));
+
 test("keeps the last document when a file cannot be opened and survives resizing", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "good.txt"), "readable content");

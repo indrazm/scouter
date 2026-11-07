@@ -167,6 +167,31 @@ test("Esc closes the search prompt but keeps the matches for n and p, and a seco
     await waitForText(setup, "FILES");
   }));
 
+test("N steps back through the kept matches, as p does, wrapping at the start", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "notes.txt");
+    await writeFile(path, numbered(60, { 5: "hit one", 30: "hit two", 50: "hit three" }));
+    await using setup = await createTestRenderer({ width: 100, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("hit");
+    await waitForFrame(setup, () => markedWords(setup).length === 1, "the first match marked");
+    setup.mockInput.pressEscape();
+    await waitForText(setup, "READER");
+    expect(footer(setup).status).toContain("/hit  1 of 3");
+
+    setup.mockInput.pressKey("N");
+    await waitForText(setup, "/hit  3 of 3");
+    expect(setup.captureCharFrame()).toContain("50  hit three");
+    setup.mockInput.pressKey("N");
+    await waitForText(setup, "/hit  2 of 3");
+    expect(setup.captureCharFrame()).toContain("30  hit two");
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "/hit  3 of 3");
+  }));
+
 test("search says where it cannot work, on a rendered Markdown file", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "readme.md"), "# Title\n\nbody\n");
