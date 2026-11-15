@@ -15,7 +15,7 @@
     "format:check": "oxfmt --check"
   },
   "dependencies": {
-    "@opentui/core": "0.8.2",
+    "@opentui/core": "0.9.0",
     "web-tree-sitter": "0.25.10"
   },
   "devDependencies": {
