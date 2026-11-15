@@ -1,4 +1,4 @@
-# 0029 — OpenTUI 0.9.0 for the tree-sitter leak
+# 0032 — OpenTUI 0.9.0 for the tree-sitter leak
 
 Date: 2026-11-15
 
