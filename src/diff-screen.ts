@@ -1,6 +1,7 @@
 import {
   BoxRenderable,
   DiffRenderable,
+  MouseButton,
   ScrollBoxRenderable,
   TextRenderable,
   type RenderContext,
@@ -8,7 +9,7 @@ import {
   type TreeSitterClient,
 } from "@opentui/core";
 import { basename, join, posix } from "node:path";
-import { ChangeList, countSegments, statusOf } from "./changes";
+import { ChangeList, countSegments, indexMark, statusOf } from "./changes";
 import { languageFor } from "./code-view";
 import { describeError, displayLabel } from "./files";
 import type { DiffScope } from "./footer";
@@ -25,22 +26,25 @@ import {
   type Patch,
   type Repository,
 } from "./git";
-import { scrollbarStyle, styled } from "./styled";
+import { scrollbarStyle, styled, type Segment } from "./styled";
 import { theme, transparent } from "./theme";
 
 export type DiffView = "unified" | "split";
-/** Narrower than this, two side-by-side columns are unreadable, so split view stays off. */
+export type HunkJumpResult = "moved" | "first" | "last" | "none";
 export const MIN_SPLIT_COLUMNS = 60;
+const NORMAL_CONTEXT_LINES = 3;
+const WIDE_CONTEXT_LINES = 12;
+const STAT_BAR_CELLS = 5;
 
 export interface DiffState {
   repository: string;
   files: number;
   truncated: boolean;
-  /** The highlighted file: the one picked in the list, or the one at the top of the reader while scrolling. */
   selected?: Change;
-  patch?: { added: number; removed: number; hunks: number };
+  patch?: { added: number; removed: number; hunks: number; hunkIndex?: number };
   view: DiffView;
   scope: DiffScope;
+  expandedContext: boolean;
   showingDiff: boolean;
 }
 
@@ -48,9 +52,7 @@ interface DiffScreenOptions {
   syntax: { style: SyntaxStyle; client: TreeSitterClient };
   onChange: () => void;
   onActivate: () => void;
-  /** The user clicked a file that has no diff to read, so the click belongs to the list. */
   onFocusList: () => void;
-  /** The diff's rendered size or scroll position changed, so the position readout may be stale. */
   onLayout: () => void;
   pollMs: number;
 }
@@ -60,7 +62,66 @@ interface Block {
   patch: Patch;
   root: BoxRenderable;
   header: BoxRenderable;
+  headerTitle: TextRenderable;
+  content: DiffRenderable | TextRenderable;
   diff?: DiffRenderable;
+}
+
+interface HunkEntry {
+  row: number;
+  path: string;
+  line: number;
+}
+
+function hunkStartLines(text: string): number[] {
+  const lines: number[] = [];
+  for (const match of text.matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)/gm)) {
+    lines.push(Math.max(1, Number(match[1] ?? 1)));
+  }
+  return lines;
+}
+
+function maxGutterDigits(files: FilePatch[]): number {
+  let highest = 1;
+  for (const { patch } of files) {
+    if (patch.kind !== "text") continue;
+
+    for (const match of patch.text.matchAll(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))?/gm)) {
+      const oldEnd = Number(match[1] ?? 0) + Number(match[2] ?? 1);
+      const newEnd = Number(match[3] ?? 0) + Number(match[4] ?? 1);
+
+      if (oldEnd > highest) highest = oldEnd;
+
+      if (newEnd > highest) highest = newEnd;
+    }
+  }
+  return Math.max(2, String(highest).length);
+}
+
+function statBarSegments(change: Change): Segment[] {
+  if (change.binary) return [];
+
+  const added = change.added ?? 0;
+  const removed = change.removed ?? 0;
+  const total = added + removed;
+
+  if (total <= 0) return [];
+
+  const filled = Math.min(STAT_BAR_CELLS, total);
+  let green = Math.round((added / total) * filled);
+
+  if (added > 0 && green === 0) green = 1;
+
+  if (removed > 0 && green === filled && filled > 1) green = filled - 1;
+
+  const red = filled - green;
+  const segments: Segment[] = [{ text: "  " }];
+
+  if (green > 0) segments.push({ text: "▪".repeat(green), fg: theme.added });
+
+  if (red > 0) segments.push({ text: "▪".repeat(red), fg: theme.removed });
+
+  return segments;
 }
 
 function signature(result: ChangeSet): string {
@@ -70,14 +131,12 @@ function signature(result: ChangeSet): string {
   return `${result.truncated}\n${rows.join("\n")}`;
 }
 
-/** Identity of what is on screen, so an unchanged re-read redraws nothing and keeps the scroll position. */
 function contentKey(files: FilePatch[]): string {
   return files
     .map(({ change, patch }) => `${change.path}\0${patch.kind === "text" ? patch.text : patch.message}`)
     .join("\u0001");
 }
 
-/** Added and removed lines are tinted lightly so the diff reads on any terminal background. */
 function diffColors() {
   return {
     addedBg: theme.addedBg,
@@ -90,7 +149,6 @@ function diffColors() {
   };
 }
 
-/** Never modifies the repository. */
 export class DiffScreen {
   readonly list: ChangeList;
   readonly body: BoxRenderable;
@@ -108,18 +166,16 @@ export class DiffScreen {
   private view: DiffView = "unified";
   private scope: DiffScope = "all";
   private wrap = false;
+  private expandedContext = false;
+  private collapsed = new Set<string>();
+  private lastHunkIndex?: number;
   private band: string = theme.fallbackBackground;
-  /** What the empty-state message says, so it can be drawn again in other colours. */
   private empty?: { title: string; detail: string };
-  /** Fingerprint of the list on screen, so a refresh only redraws it when something actually changed. */
   private signature = "";
   private shownKey = "";
-  /** Bumped when a read starts or stops being wanted, so a slow read for an earlier choice cannot overwrite a newer one. */
   private request = 0;
   private pending = false;
-  /** The user opened a file while its diff was still loading; hand focus over once it arrives. */
   private activateWhenReady = false;
-  /** Set while the list is rebuilt behind the user's back, so the reader is not scrolled to the highlight. */
   private holdScroll = false;
   private jumpAfterLayout?: Change;
   private watching = false;
@@ -198,31 +254,46 @@ export class DiffScreen {
   }
 
   state(): DiffState {
-    const totals = { added: 0, removed: 0, hunks: 0 };
+    const totals: { added: number; removed: number; hunks: number; hunkIndex?: number } = {
+      added: 0,
+      removed: 0,
+      hunks: 0,
+    };
     let anyText = false;
     for (const { patch } of this.blocks) {
       if (patch.kind !== "text") continue;
+
       anyText = true;
       totals.added += patch.added;
       totals.removed += patch.removed;
       totals.hunks += patch.hunks;
     }
-    return {
+
+    const activeHunk = this.currentHunkIndex();
+
+    if (activeHunk !== undefined) totals.hunkIndex = activeHunk;
+
+    const state: DiffState = {
       repository: this.repository ? basename(this.repository.root) : "",
       files: this.changes.length,
       truncated: this.truncated,
-      ...(this.selected ? { selected: this.selected } : {}),
-      ...(anyText ? { patch: totals } : {}),
       view: this.view,
       scope: this.scope,
+      expandedContext: this.expandedContext,
       showingDiff: this.showingDiff,
     };
+
+    if (this.selected) state.selected = this.selected;
+
+    if (anyText) state.patch = totals;
+
+    return state;
   }
 
-  /** Set the new tint first. */
   restyle(): void {
     this.list.repaint();
     this.scroller.scrollbarOptions = scrollbarStyle();
+
     if (this.blocks.length)
       this.show(
         this.blocks.map(({ change, patch }) => ({ change, patch })),
@@ -236,7 +307,6 @@ export class DiffScreen {
     for (const block of this.blocks) block.header.backgroundColor = color;
   }
 
-  /** Throws a `GitError` with a message fit for the footer when there is nothing to show. */
   async load(directory: string): Promise<void> {
     const previous = this.repository;
     const repository = previous && directory === this.directory ? previous : await openRepository(directory);
@@ -245,18 +315,23 @@ export class DiffScreen {
       result = await listChanges(repository);
     } catch (error) {
       if (repository !== previous) await closeRepository(repository);
+
       throw error;
     }
+
     if (repository !== previous) {
       if (previous) await closeRepository(previous);
+
       this.repository = repository;
       this.directory = directory;
     }
+
     this.apply(result);
   }
 
   watch(): void {
     if (this.watching) return;
+
     this.watching = true;
     this.schedule(this.options.pollMs);
   }
@@ -280,12 +355,50 @@ export class DiffScreen {
     this.pending = false;
     this.activateWhenReady = false;
     this.jumpAfterLayout = undefined;
+    this.collapsed.clear();
+    this.lastHunkIndex = undefined;
+
     if (repository) await closeRepository(repository);
   }
 
-  /** Returns false, changing nothing, when the reader is too narrow for two side-by-side columns. */
+  toggleContext(): void {
+    this.expandedContext = !this.expandedContext;
+    this.shownKey = "";
+    this.request += 1;
+    this.activateWhenReady = false;
+
+    if (this.scope === "all") {
+      this.jumpAfterLayout = this.selected;
+      void this.loadAll();
+    } else if (this.selected) {
+      void this.select(this.selected);
+    }
+
+    this.options.onChange();
+  }
+
+  toggleCollapse(path?: string): void {
+    const target = path ?? this.selected?.path;
+
+    if (!target) return;
+
+    if (this.collapsed.has(target)) this.collapsed.delete(target);
+    else this.collapsed.add(target);
+
+    for (const block of this.blocks) {
+      if (block.change.path === target) block.content.visible = !this.collapsed.has(target);
+    }
+    this.paintHeaders();
+    this.options.onChange();
+  }
+
+  private contextLines(): number {
+    return this.expandedContext ? WIDE_CONTEXT_LINES : NORMAL_CONTEXT_LINES;
+  }
+
   toggleView(): boolean {
     if (this.view === "unified" && this.body.width < MIN_SPLIT_COLUMNS) return false;
+
     this.view = this.view === "unified" ? "split" : "unified";
     for (const block of this.blocks) if (block.diff) block.diff.view = this.view;
     this.options.onChange();
@@ -303,26 +416,43 @@ export class DiffScreen {
     this.shownKey = "";
     this.request += 1;
     this.activateWhenReady = false;
+
     if (this.scope === "all") {
       this.jumpAfterLayout = this.selected;
       void this.loadAll();
     } else if (this.selected) {
       void this.select(this.selected);
     }
+
     this.options.onChange();
   }
 
-  jumpHunk(direction: 1 | -1): void {
-    const rows = this.hunkRows();
+  jumpHunk(direction: 1 | -1): HunkJumpResult {
+    const entries = this.hunkEntries();
+
+    if (!entries.length) return "none";
+
     const top = this.scroller.scrollTop;
-    const target = direction > 0 ? rows.find((row) => row > top) : rows.findLast((row) => row < top);
-    if (target !== undefined) this.scroller.scrollTo({ x: 0, y: target });
+    const target =
+      direction > 0 ? entries.find((entry) => entry.row > top) : entries.findLast((entry) => entry.row < top);
+
+    if (!target) return direction > 0 ? "last" : "first";
+
+    this.scroller.scrollTo({ x: 0, y: target.row });
+    return "moved";
   }
 
-  /** Undefined for a deleted file, which has nothing on disk to open. */
   changedFile(): { path: string; line: number } | undefined {
     const change = this.selected;
+
     if (!change || !this.repository || change.kind === "deleted") return undefined;
+
+    const entries = this.hunkEntries().filter((entry) => entry.path === change.path);
+    const top = this.scroller.scrollTop;
+    const active = entries.findLast((entry) => entry.row <= top) ?? entries[0];
+
+    if (active) return { path: join(this.repository.root, change.path), line: active.line };
+
     const block = this.blocks.find((candidate) => candidate.change.path === change.path);
     const text = block?.patch.kind === "text" ? block.patch.text : "";
     const start = /^@@ -\d+(?:,\d+)? \+(\d+)/m.exec(text)?.[1];
@@ -342,22 +472,24 @@ export class DiffScreen {
 
   private async poll(): Promise<void> {
     if (!this.watching) return;
+
     const started = Date.now();
     try {
       await this.refresh();
-    } catch {
-      // Keeps what is on screen.
-    }
-    // A slow repository is polled less often, so watching never keeps git busy.
+    } catch {}
+
     if (this.watching) this.schedule(Math.max(this.options.pollMs, (Date.now() - started) * 3));
   }
 
-  /** Re-reads the changes and, if the list did not move, the diffs themselves, which may have been edited. */
   private async refresh(): Promise<void> {
     const repository = this.repository;
+
     if (!repository) return;
+
     const result = await listChanges(repository);
+
     if (repository !== this.repository) return;
+
     if (signature(result) !== this.signature) this.apply(result);
     else if (this.scope === "all") await this.loadAll();
     else if (this.selected) await this.reread(this.selected);
@@ -368,6 +500,7 @@ export class DiffScreen {
     this.changes = result.changes;
     this.truncated = result.truncated;
     this.signature = signature(result);
+
     if (result.changes.length) {
       this.holdScroll = true;
       try {
@@ -375,6 +508,7 @@ export class DiffScreen {
       } finally {
         this.holdScroll = false;
       }
+
       if (this.scope === "all") void this.loadAll();
     } else {
       this.request += 1;
@@ -384,6 +518,7 @@ export class DiffScreen {
       this.list.show([]);
       this.showEmpty("No changes", `The working tree matches ${this.baseLabel()}.`);
     }
+
     this.options.onChange();
   }
 
@@ -393,65 +528,82 @@ export class DiffScreen {
 
   private async select(change: Change | undefined): Promise<void> {
     this.selected = change;
+
     if (!change || !this.repository) return;
+
     if (this.scope === "all") {
-      // Everything is already on screen; the reader just scrolls to this file's section.
       if (!this.holdScroll) this.jumpTo(change);
+
+      this.paintHeaders();
       this.options.onChange();
       return;
     }
+
     const request = ++this.request;
     this.activateWhenReady = false;
     this.pending = true;
     const patch = await this.read(this.repository, change);
+
     if (request !== this.request) return;
+
     this.pending = false;
     this.presentOne(change, patch);
     this.finishPending();
   }
 
-  /** Reads the highlighted file's diff again without touching the selection or any pending Enter. */
   private async reread(change: Change): Promise<void> {
     const repository = this.repository;
+
     if (!repository) return;
+
     const patch = await this.read(repository, change);
+
     if (repository !== this.repository || this.scope !== "one" || this.selected !== change || this.pending) return;
+
     this.presentOne(change, patch);
   }
 
   private async loadAll(): Promise<void> {
     const repository = this.repository;
+
     if (!repository || this.scope !== "all" || !this.changes.length) return;
+
     const request = ++this.request;
     this.pending = true;
     let files: FilePatch[];
     try {
-      files = await readAllPatches(repository, this.changes);
+      files = await readAllPatches(repository, this.changes, this.contextLines());
     } catch {
       this.pending = false;
       return;
     }
+
     if (request !== this.request || repository !== this.repository) return;
+
     this.pending = false;
     const key = contentKey(files);
+
     if (key !== this.shownKey) {
       this.shownKey = key;
       this.show(files, "keep");
       this.options.onChange();
     }
+
     this.finishPending();
   }
 
   private finishPending(): void {
     if (!this.activateWhenReady) return;
+
     this.activateWhenReady = false;
+
     if (this.blocks.length) this.options.onActivate();
     else this.options.onFocusList();
   }
 
   private async read(repository: Repository, change: Change): Promise<Patch> {
     try {
-      return await readPatch(repository, change);
+      return await readPatch(repository, change, this.contextLines());
     } catch (error) {
       return { kind: "notice", message: error instanceof GitError ? error.message : describeError(error) };
     }
@@ -459,24 +611,27 @@ export class DiffScreen {
 
   private presentOne(change: Change, patch: Patch): void {
     const key = contentKey([{ change, patch }]);
+
     if (key === this.shownKey) return;
-    // The same file edited underneath the reader keeps its scroll position; a different file starts at the top.
+
     const sameFile = this.blocks.length === 1 && this.blocks[0]?.change.path === change.path;
     this.shownKey = key;
     this.show([{ change, patch }], sameFile ? "keep" : "top");
     this.options.onChange();
   }
 
-  /** The new blocks are built before the old are removed, so nothing blinks. */
   private show(files: FilePatch[], scroll: "keep" | "top"): void {
     const previous = this.blocks;
-    this.blocks = files.map((file, index) => this.createBlock(file, index));
+    const minDigits = maxGutterDigits(files);
+    this.blocks = files.map((file, index) => this.createBlock(file, index, minDigits));
     for (const block of this.blocks) this.stack.add(block.root);
     for (const block of previous) block.root.destroyRecursively();
     this.message.visible = false;
     this.scroller.visible = true;
     this.applyWrap();
+
     if (scroll === "top") this.scroller.scrollTo({ x: 0, y: 0 });
+
     if (this.scope === "all" && this.jumpAfterLayout) this.queueJump();
   }
 
@@ -496,50 +651,94 @@ export class DiffScreen {
     this.blocks = [];
   }
 
-  private createBlock({ change, patch }: FilePatch, index: number): Block {
+  private createBlock({ change, patch }: FilePatch, index: number, minDigits: number): Block {
     const context = this.context;
     const root = new BoxRenderable(context, {
       flexDirection: "column",
       flexShrink: 0,
       minWidth: "100%",
-      ...(index ? { marginTop: 1 } : {}),
+      marginTop: index ? 1 : 0,
     });
-    const header = this.createHeader(change);
+    const { header, headerTitle } = this.createHeader(change, index);
     root.add(header);
-    const diff = patch.kind === "text" ? this.createDiff(change, patch.text) : undefined;
-    root.add(diff ?? this.createNote(patch));
-    return { change, patch, root, header, ...(diff ? { diff } : {}) };
+    const diff = patch.kind === "text" ? this.createDiff(change, patch.text, minDigits) : undefined;
+    const content = diff ?? this.createNote(patch);
+    content.visible = !this.collapsed.has(change.path);
+    root.add(content);
+    const block: Block = { change, patch, root, header, headerTitle, content };
+
+    if (diff) block.diff = diff;
+
+    return block;
   }
 
-  private createHeader(change: Change): BoxRenderable {
+  private headerTitleContent(change: Change, active: boolean) {
+    const { letter, color } = statusOf(change.kind);
+    const mark = indexMark(change);
+    const folder = posix.dirname(change.path);
+    const folded = this.collapsed.has(change.path);
+    const segments: Segment[] = [
+      { text: active ? "▎ " : "  ", fg: theme.accent },
+      { text: folded ? "▸ " : "▾ ", fg: theme.dim },
+      { text: `${letter} `, fg: color, bold: true },
+    ];
+
+    if (mark) segments.push(mark, { text: " " });
+
+    segments.push({
+      text: displayLabel(posix.basename(change.path)),
+      fg: active ? theme.accentSoft : theme.text,
+      bold: true,
+    });
+
+    if (change.oldPath) segments.push({ text: `  ← ${displayLabel(change.oldPath)}`, fg: theme.dim });
+
+    if (folder !== ".") segments.push({ text: `  ${displayLabel(folder)}/`, fg: theme.dim });
+
+    return styled(segments);
+  }
+
+  private paintHeaders(): void {
+    for (const block of this.blocks) {
+      const active = this.scope === "all" && block.change.path === this.selected?.path;
+      block.headerTitle.content = this.headerTitleContent(block.change, active);
+    }
+  }
+
+  private createHeader(change: Change, index: number): { header: BoxRenderable; headerTitle: TextRenderable } {
     const context = this.context;
+    const active = this.scope === "all" && change.path === this.selected?.path;
     const header = new BoxRenderable(context, {
-      height: 1,
+      height: index ? 2 : 1,
       width: "100%",
       flexShrink: 0,
       flexDirection: "row",
-      paddingLeft: 1,
       paddingRight: 1,
       backgroundColor: this.band,
+      onMouseDown: (event) => {
+        if (event.button !== MouseButton.LEFT) return;
+
+        event.preventDefault();
+        this.toggleCollapse(change.path);
+      },
     });
-    const { letter, color } = statusOf(change.kind);
-    const folder = posix.dirname(change.path);
-    header.add(
-      new TextRenderable(context, {
-        height: 1,
-        flexGrow: 1,
-        flexShrink: 1,
-        minWidth: 0,
-        wrapMode: "none",
-        selectable: false,
-        content: styled([
-          { text: `${letter} `, fg: color, bold: true },
-          { text: displayLabel(posix.basename(change.path)), fg: theme.text, bold: true },
-          ...(change.oldPath ? [{ text: `  ← ${displayLabel(change.oldPath)}`, fg: theme.dim }] : []),
-          ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
-        ]),
-      }),
-    );
+
+    if (index > 0) {
+      header.border = ["top"];
+      header.borderColor = theme.border;
+    }
+
+    const headerTitle = new TextRenderable(context, {
+      height: 1,
+      flexGrow: 1,
+      flexShrink: 1,
+      minWidth: 0,
+      wrapMode: "none",
+      selectable: false,
+      content: this.headerTitleContent(change, active),
+    });
+    header.add(headerTitle);
+    const rightSegments: Segment[] = [...countSegments(change), ...statBarSegments(change)];
     header.add(
       new TextRenderable(context, {
         height: 1,
@@ -547,13 +746,13 @@ export class DiffScreen {
         marginLeft: 1,
         wrapMode: "none",
         selectable: false,
-        content: styled(countSegments(change)),
+        content: styled(rightSegments),
       }),
     );
-    return header;
+    return { header, headerTitle };
   }
 
-  private createDiff(change: Change, text: string): DiffRenderable {
+  private createDiff(change: Change, text: string, minDigits: number): DiffRenderable {
     return new DiffRenderable(this.context, {
       diff: text,
       view: this.view,
@@ -561,10 +760,12 @@ export class DiffScreen {
       flexShrink: 0,
       conceal: false,
       fg: theme.text,
+      selectionBg: theme.selectionBg,
       filetype: languageFor(change.path),
       syntaxStyle: this.options.syntax.style,
       treeSitterClient: this.options.syntax.client,
-      lineNumberFg: theme.muted,
+      lineNumberFg: theme.dim,
+      gutter: { minDigits, paddingLeft: 1, paddingRight: 1 },
       ...diffColors(),
       onSizeChange: () => this.layoutChanged(),
     });
@@ -584,6 +785,7 @@ export class DiffScreen {
   private applyWrap(): void {
     for (const block of this.blocks) {
       block.root.flexShrink = this.wrap ? 1 : 0;
+
       if (block.diff) {
         block.diff.wrapMode = this.wrap ? "word" : "none";
         block.diff.flexShrink = this.wrap ? 1 : 0;
@@ -600,28 +802,50 @@ export class DiffScreen {
 
   private jumpTo(change: Change): void {
     const block = this.blocks.find((candidate) => candidate.change.path === change.path);
+
     if (block) this.scroller.scrollTo({ x: 0, y: this.blockTop(block) });
   }
 
-  /** Scrolls to a file once layout has placed the freshly built blocks; before that every block sits at row 0. */
   private queueJump(): void {
     queueMicrotask(() => {
       const target = this.jumpAfterLayout;
       this.jumpAfterLayout = undefined;
+
       if (target && this.scope === "all") this.jumpTo(target);
     });
   }
 
-  /** Rows where each hunk starts (the file's header band, for a hunk at the top of its diff). */
-  private hunkRows(): number[] {
-    const rows: number[] = [];
+  private hunkEntries(): HunkEntry[] {
+    const entries: HunkEntry[] = [];
     for (const block of this.blocks) {
-      if (!block.diff) continue;
+      if (!block.diff || !block.content.visible || block.patch.kind !== "text") continue;
+
       const top = block.diff.y - this.stack.y;
-      for (const offset of block.diff.getHunkRowOffsets())
-        rows.push(Math.max(0, top + offset - (offset === 0 ? 1 : 0)));
+      const lines = hunkStartLines(block.patch.text);
+      const offsets = block.diff.getHunkRowOffsets();
+      for (const [index, offset] of offsets.entries()) {
+        const headerOffset = offset === 0 ? block.header.height : 0;
+        entries.push({
+          row: Math.max(0, top + offset - headerOffset),
+          path: block.change.path,
+          line: lines[index] ?? 1,
+        });
+      }
     }
-    return rows;
+    return entries;
+  }
+
+  private currentHunkIndex(): number | undefined {
+    const entries = this.hunkEntries();
+
+    if (!entries.length) return undefined;
+
+    const top = this.scroller.scrollTop;
+    let index = 0;
+    for (let current = 0; current < entries.length; current += 1) {
+      if ((entries[current]?.row ?? 0) <= top) index = current;
+    }
+    return index + 1;
   }
 
   private layoutChanged(): void {
@@ -630,13 +854,31 @@ export class DiffScreen {
   }
 
   private followScroll(): void {
-    if (this.scope !== "all" || !this.scroller.focused || !this.blocks.length) return;
+    if (!this.blocks.length) return;
+
+    const hunkIndex = this.currentHunkIndex();
+    const hunkChanged = hunkIndex !== this.lastHunkIndex;
+    this.lastHunkIndex = hunkIndex;
+
+    if (this.scope !== "all" || !this.scroller.focused) {
+      if (hunkChanged) this.options.onChange();
+
+      return;
+    }
+
     const top = this.scroller.scrollTop;
     let current = this.blocks[0];
     for (const block of this.blocks) if (this.blockTop(block) <= top) current = block;
-    if (!current || current.change.path === this.selected?.path) return;
+
+    if (!current || current.change.path === this.selected?.path) {
+      if (hunkChanged) this.options.onChange();
+
+      return;
+    }
+
     this.selected = current.change;
     this.list.highlight(current.change.path);
+    this.paintHeaders();
     this.options.onChange();
   }
 }

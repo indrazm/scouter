@@ -10,32 +10,27 @@ export type FooterFocus = "files" | "reader";
 export interface DocumentInfo {
   lines: number;
   language: string;
-  /** Set for Markdown: whether it is shown rendered, so the hint can offer the other view. */
   rendered?: boolean;
-  /** Set for a picture, which has a size and format instead of lines and encoding. */
   image?: { width: number; height: number; format: string };
-  /** Only the start of the file is loaded, so the line count is a minimum. */
+  binary?: { size: string };
   truncated?: boolean;
 }
 
-/** `all` stacks every changed file's diff in one scrolling reader; `one` shows only the highlighted file. */
 export type DiffScope = "all" | "one";
 
 export interface DiffInfo {
-  /** Repository-relative path of the highlighted file, or the repository name when nothing is highlighted. */
   location: string;
   files: number;
-  /** Whether the reader shows every file or only the highlighted one; the hint offers the other. */
   scope: DiffScope;
   truncated?: boolean;
   added?: number;
   removed?: number;
   hunks?: number;
+  hunkIndex?: number;
 }
 
 type Hint = [key: string, action: string];
 
-/** Which `/` prompt is open: finding a file by name, searching text in every file, or searching the open file. */
 export type FooterPrompt = "files" | "text" | "reader";
 
 const promptLabels: Record<FooterPrompt, string> = { files: "FIND", text: "TEXT", reader: "SEARCH" };
@@ -84,6 +79,7 @@ function hintsFor(
   image = false,
 ): Hint[] {
   const pan: Hint[] = wrap ? [] : [["h l", "pan"]];
+
   if (mode === "diff") {
     const other: Hint = ["a", scope === "all" ? "one file" : "all files"];
     return focus === "files"
@@ -106,6 +102,9 @@ function hintsFor(
           ["s", "split"],
           other,
           ["Tab", "files"],
+          ["c", "fold"],
+          ["x", "context"],
+          ["y", "copy"],
           ["w", "wrap"],
           ...pan,
           ["gg G", "top/bottom"],
@@ -115,6 +114,7 @@ function hintsFor(
           ["q", "quit"],
         ];
   }
+
   if (image && focus !== "files") {
     return [
       ["Tab", "files"],
@@ -122,38 +122,44 @@ function hintsFor(
       ["q", "quit"],
     ];
   }
+
   const view: Hint[] = rendered === undefined ? [] : [["m", rendered ? "source" : "preview"]];
-  return focus === "files"
-    ? [
-        ["j k", "move"],
-        ["Enter", "open"],
-        ["/", "find"],
-        ["-", "up"],
-        ["h", "back"],
-        ["Tab", "reader"],
-        ["d", "changes"],
-        ["w", "wrap"],
-        ["^←→", "resize"],
-        ["^o alt+i", "jump"],
-        ["?", "help"],
-        ["q", "quit"],
-      ]
-    : [
-        ["j k", "scroll"],
-        ...(rendered ? [] : pan),
-        ["gg G", "top/bottom"],
-        ...(rendered ? [] : [["{ }", "paragraph"] as Hint]),
-        ["z z", "centre"],
-        ["^d ^u", "page"],
-        ["Tab", "files"],
-        ...view,
-        ...(rendered ? [] : [["/", "search"] as Hint]),
-        ["d", "changes"],
-        ["^o alt+i", "jump"],
-        ...(rendered ? [] : [["w", "wrap"] as Hint]),
-        ["?", "help"],
-        ["q", "quit"],
-      ];
+
+  if (focus === "files") {
+    return [
+      ["j k", "move"],
+      ["Enter", "open"],
+      ["/", "find"],
+      ["-", "up"],
+      ["h", "back"],
+      ["Tab", "reader"],
+      ["d", "changes"],
+      ["w", "wrap"],
+      ["^←→", "resize"],
+      ["^o alt+i", "jump"],
+      ["?", "help"],
+      ["q", "quit"],
+    ];
+  }
+
+  const hints: Hint[] = [["j k", "scroll"]];
+
+  if (!rendered) hints.push(...pan);
+
+  hints.push(["gg G", "top/bottom"]);
+
+  if (!rendered) hints.push(["{ }", "paragraph"]);
+
+  hints.push(["z z", "centre"], ["^d ^u", "page"], ["Tab", "files"], ...view);
+
+  if (!rendered) hints.push(["/", "search"]);
+
+  hints.push(["y", "copy"], ["d", "changes"], ["^o alt+i", "jump"]);
+
+  if (!rendered) hints.push(["w", "wrap"]);
+
+  hints.push(["?", "help"], ["q", "quit"]);
+  return hints;
 }
 
 function tildify(path: string): string {
@@ -161,7 +167,6 @@ function tildify(path: string): string {
   return path === home || path.startsWith(`${home}/`) ? `~${path.slice(home.length)}` : path;
 }
 
-/** Content that does not fit is dropped by priority, never wrapped. Browsing and the diff screen keep their own scroll position. */
 export class Footer {
   readonly root: BoxRenderable;
   private readonly band: BoxRenderable;
@@ -233,6 +238,7 @@ export class Footer {
 
   setMode(mode: FooterMode): void {
     if (mode === this.mode) return;
+
     this.mode = mode;
     this.message = undefined;
     this.render();
@@ -240,11 +246,11 @@ export class Footer {
 
   setFocus(focus: FooterFocus): void {
     if (focus === this.focus) return;
+
     this.focus = focus;
     this.render();
   }
 
-  /** Replaces any message, which only describes the operation that just ran. */
   setLocation(path: string): void {
     this.location = tildify(displayLabel(path));
     this.message = undefined;
@@ -263,18 +269,23 @@ export class Footer {
 
   setDocument(document: DocumentInfo | undefined): void {
     this.document = document;
+
     if (!document) this.positions.browse = undefined;
+
     this.render();
   }
 
   setDiff(diff: DiffInfo | undefined): void {
     this.diff = diff && { ...diff, location: displayLabel(diff.location) };
+
     if (!diff) this.positions.diff = undefined;
+
     this.render();
   }
 
   setPosition(position: string | undefined): void {
     if (position === this.positions[this.mode]) return;
+
     this.positions[this.mode] = position;
     this.render();
   }
@@ -284,22 +295,23 @@ export class Footer {
     this.render();
   }
 
-  /** A count typed in the reader and not yet used, such as 120 before G. */
   setPending(count: number | undefined): void {
     if (count === this.pending) return;
+
     this.pending = count;
     this.render();
   }
 
-  /** What is typed shows in the file list's find bar, or, for the reader's search, as the status row's message. */
   setPrompt(prompt: FooterPrompt | undefined): void {
     if (prompt === this.prompt) return;
+
     this.prompt = prompt;
     this.render();
   }
 
   private readonly render = (): void => {
     if (this.renderer.isDestroyed) return;
+
     const inner = Math.max(0, this.renderer.width - 2);
     const pill: Segment = {
       text: ` ${this.prompt ? promptLabels[this.prompt] : pillLabels[this.mode][this.focus]} `,
@@ -320,6 +332,7 @@ export class Footer {
     if (this.message) {
       return [{ text: fitStart(this.message.text, columns), fg: this.message.error ? theme.error : theme.accentSoft }];
     }
+
     const shown = fitEnd(this.mode === "diff" ? (this.diff?.location ?? "") : this.location, columns);
     const cut = shown.lastIndexOf("/", shown.length - 2) + 1;
     return [
@@ -330,17 +343,25 @@ export class Footer {
 
   private candidateFacts(): Fact[] {
     const facts: Fact[] = [];
+
     if (this.mode === "diff") {
       const diff = this.diff;
+
       if (diff) {
         const files = `${diff.files}${diff.truncated ? "+" : ""} ${diff.files === 1 && !diff.truncated ? "file" : "files"}`;
         facts.push({ key: "files", segments: [{ text: files, fg: theme.muted }] });
+
         if (diff.hunks !== undefined) {
+          const label =
+            diff.hunks > 1 && diff.hunkIndex !== undefined
+              ? `${diff.hunkIndex}/${diff.hunks} hunks`
+              : `${diff.hunks} ${diff.hunks === 1 ? "hunk" : "hunks"}`;
           facts.push({
             key: "hunks",
-            segments: [{ text: `${diff.hunks} ${diff.hunks === 1 ? "hunk" : "hunks"}`, fg: theme.muted }],
+            segments: [{ text: label, fg: theme.muted }],
           });
         }
+
         if (diff.added !== undefined && diff.removed !== undefined) {
           facts.push({
             key: "counts",
@@ -356,38 +377,53 @@ export class Footer {
       const { width, height, format } = this.document.image;
       facts.push({ key: "size", segments: [{ text: `${width}×${height}`, fg: theme.muted }] });
       facts.push({ key: "language", segments: [{ text: format, fg: theme.muted }] });
+    } else if (this.document?.binary) {
+      facts.push({ key: "size", segments: [{ text: this.document.binary.size, fg: theme.muted }] });
+      facts.push({ key: "language", segments: [{ text: "binary", fg: theme.muted }] });
     } else if (this.document) {
       const plus = this.document.truncated ? "+" : "";
       facts.push({ key: "lines", segments: [{ text: `${this.document.lines}${plus} lines`, fg: theme.muted }] });
       facts.push({ key: "language", segments: [{ text: this.document.language, fg: theme.muted }] });
       facts.push({ key: "encoding", segments: [{ text: "UTF-8", fg: theme.muted }] });
     }
+
     const position = this.positions[this.mode];
+
     if (position) facts.push({ key: "position", segments: [{ text: position, fg: theme.text }] });
+
     if (this.pending) facts.push({ key: "count", segments: [{ text: `${this.pending}`, fg: theme.accentSoft }] });
+
     return facts;
   }
 
-  /** Dropped lowest-priority first until they fit `columns`. */
   private fitFacts(columns: number): Segment[] {
     const facts = this.candidateFacts();
     const width = (): number =>
-      facts.reduce((total, fact, index) => total + segmentsWidth(fact.segments) + (index ? 2 : 0), 0);
+      facts.reduce(
+        (total, fact, index) => total + segmentsWidth(fact.segments) + (index ? (fact.key === "count" ? 2 : 3) : 0),
+        0,
+      );
     for (const key of ["encoding", "language", "files", "lines", "size", "hunks", "counts", "position", "count"]) {
       if (width() <= columns) break;
+
       const index = facts.findIndex((fact) => fact.key === key);
+
       if (index >= 0) facts.splice(index, 1);
     }
+
     if (width() > columns) return [];
+
     const segments: Segment[] = [];
     for (const [index, fact] of facts.entries()) {
-      if (index) segments.push({ text: "  " });
+      if (index) {
+        segments.push(fact.key === "count" ? { text: "  " } : { text: " · ", fg: theme.ignored });
+      }
+
       segments.push(...fact.segments);
     }
     return segments;
   }
 
-  /** Quit is reserved its place at the end, so it is the last hint to be dropped on a narrow terminal. */
   private fitHints(columns: number): Segment[] {
     const hints = this.prompt
       ? promptHints[this.prompt]
@@ -407,12 +443,13 @@ export class Footer {
       hints.filter(([key]) => key !== "q"),
       columns - (tail.length ? segmentsWidth(tail) + HINT_GAP.length : 0),
     );
+
     if (!tail.length) return head;
+
     return head.length ? [...head, { text: HINT_GAP }, ...tail] : tail;
   }
 }
 
-/** The hints that fit in `columns`, in order, stopping at the first one that does not. */
 function fitHintList(hints: Hint[], columns: number): Segment[] {
   const segments: Segment[] = [];
   for (const [key, action] of hints) {
@@ -421,7 +458,9 @@ function fitHintList(hints: Hint[], columns: number): Segment[] {
       { text: ` ${action}`, fg: theme.dim },
     ];
     const next = segments.length ? [...segments, { text: HINT_GAP }, ...hint] : hint;
+
     if (segmentsWidth(next) > columns) break;
+
     segments.splice(0, segments.length, ...next);
   }
   return segments;

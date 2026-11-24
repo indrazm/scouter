@@ -1,9 +1,5 @@
 export type KeyRow = [keys: string, action: string];
 
-/**
- * Every key in the app, grouped as the `?` list and `--help` show them. This is the one place that says what a key
- * does; the README's table must only use keys that appear here (tests/keymap.test.ts).
- */
 export const keySections: [title: string, rows: KeyRow[]][] = [
   [
     "Browse",
@@ -39,25 +35,28 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
       ["n N p", "next / previous hunk"],
       ["a", "all files / one file"],
       ["s", "split / unified"],
+      ["c", "collapse / expand file diff"],
+      ["x", "more / normal context lines"],
       ["r", "reload"],
-      ["o", "open the file at its first change"],
+      ["o", "open the file at the current hunk"],
     ],
   ],
   [
     "Everywhere",
     [
       ["Tab", "switch panes"],
+      ["y", "copy selection, or the current path"],
       ["Ctrl+o Alt+i", "jump back / forward through opened places"],
-      ["Esc", "clear a search, or back to the file list"],
+      ["Esc", "clear selection or search, or back to the file list"],
       ["?", "this help (any key closes)"],
       ["q Ctrl+c", "quit"],
     ],
   ],
 ];
 
-/** What the mouse does. Listed by `--help` only: the `?` list is for keys. */
 export const mouseRows: KeyRow[] = [
   ["Left click", "open a file or toggle a folder"],
+  ["Drag text", "select and copy to clipboard"],
   ["Wheel", "scroll the pane under the pointer"],
   ["Drag edge", "resize the list"],
 ];

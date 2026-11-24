@@ -18,12 +18,13 @@ function footer(setup: TestRendererSetup): { status: string; hints: string } {
   return { status: rows.at(-2) ?? "", hints: rows.at(-1) ?? "" };
 }
 
-/** The pane headers sit on the second row; the first is the panes' top border. */
 const headerRow = (setup: TestRendererSetup): string => setup.captureCharFrame().split("\n")[1] ?? "";
 
 function scroller(setup: TestRendererSetup): ScrollBoxRenderable {
   const found = setup.renderer.root.findDescendantById("diff-scroller");
+
   if (!(found instanceof ScrollBoxRenderable)) throw new Error("No diff scroller mounted.");
+
   return found;
 }
 
@@ -85,7 +86,6 @@ test("a clean repository shows an empty state instead of a diff", () =>
     expect(setup.captureCharFrame()).toContain("The working tree matches HEAD.");
     expect(footer(setup).status).toContain("CHANGES");
     expect(footer(setup).status).toContain("0 files");
-    // Nothing to read, so Tab has nowhere to go.
     setup.mockInput.pressTab();
     await setup.renderOnce();
     expect(footer(setup).status).toContain("CHANGES");
@@ -112,7 +112,6 @@ test("shows every changed file's diff stacked by default, and returns to the fil
 
     setup.mockInput.pressKey("d");
     await waitForText(setup, "CHANGES");
-    // Both small files are on screen together, each under a band naming it, before anything is selected.
     await waitForText(setup, "bye");
     await waitForText(setup, "brand new");
     const everything = setup.captureCharFrame();
@@ -126,7 +125,6 @@ test("shows every changed file's diff stacked by default, and returns to the fil
     expect(footer(setup).status).toContain("4 hunks");
     expect(footer(setup).status).toContain("+4 −3");
 
-    // Picking the last file scrolls the reader towards it (as far as the content allows) and names it.
     setup.mockInput.pressKey("G");
     await setup.renderOnce();
     expect(scroller(setup).scrollTop).toBeGreaterThan(0);
@@ -152,7 +150,6 @@ test("shows every changed file's diff stacked by default, and returns to the fil
     expect(footer(setup).status).toContain("3 lines");
     expect(headerRow(setup)).toContain("README.md");
     expect(headerRow(setup)).toContain("read-only");
-    // The file you were reading comes back as it was: Markdown, rendered.
     await waitForText(setup, "body");
     expect(setup.captureCharFrame()).not.toContain("# Title");
     expect(git(directory, "status", "--porcelain")).toContain(" D gone.txt");
@@ -174,11 +171,9 @@ test("n and p step through the hunks of every file in order", () =>
     setup.mockInput.pressTab();
     await setup.renderOnce();
 
-    // Six hunks across three files: each press lands further down, until the end of the content stops it.
     const tops: number[] = [scroller(setup).scrollTop];
     for (let step = 0; step < 6; step += 1) {
       setup.mockInput.pressKey("n");
-      // Each press is read back before the next, so the positions can be compared in order.
       // oxlint-disable-next-line no-await-in-loop
       await setup.renderOnce();
       tops.push(scroller(setup).scrollTop);
@@ -242,7 +237,6 @@ test("the highlight follows the reader as it scrolls, and a pick in the list scr
     await waitForText(setup, "3 files");
     expect(footer(setup).status).toContain("a.txt");
 
-    // Pick from the list: the reader goes to that file.
     setup.mockInput.pressKey("j");
     await setup.renderOnce();
     await setup.renderOnce();
@@ -251,7 +245,6 @@ test("the highlight follows the reader as it scrolls, and a pick in the list scr
     expect(footer(setup).status).toContain("b.txt");
     expect(setup.captureCharFrame().split("\n")[1]).toContain("b.txt");
 
-    // Scroll the reader to the third file: the footer and header name it, and the list highlight moves with it.
     setup.mockInput.pressTab();
     await setup.renderOnce();
     setup.mockInput.pressKey("G");
@@ -264,7 +257,6 @@ test("the highlight follows the reader as it scrolls, and a pick in the list scr
     setup.mockInput.pressKey("k");
     await setup.renderOnce();
     await setup.renderOnce();
-    // The list was already on c.txt, so one step up is b.txt, not a.txt.
     expect(footer(setup).status).toContain("b.txt");
   }));
 
@@ -297,7 +289,6 @@ test("a toggles between every file and the highlighted file alone", () =>
     await waitForText(setup, "c.txt changed");
     expect(setup.captureCharFrame()).toContain("a.txt changed");
     expect(headerRow(setup)).toContain("all files");
-    // Going back to every file lands on the file that was highlighted.
     expect(footer(setup).status).toContain("b.txt");
   }));
 
@@ -408,7 +399,6 @@ test("w wraps long diff lines to the reader's width, and d returns with the side
     expect(footer(setup).status).toContain("FILES");
   }));
 
-/** Replaces the first 60 lines of a numbered file with `word 1` ... `word 60`. */
 const rewrite = (word: string): Record<number, string> =>
   Object.fromEntries(Array.from({ length: 60 }, (_, index) => [index + 1, `${word} ${index + 1}`]));
 
@@ -453,7 +443,6 @@ test("keeps the highlight near its place when its file is committed", () =>
     git(directory, "add", "b.txt");
     git(directory, "commit", "--quiet", "-m", "only b");
     await waitForText(setup, "2 files");
-    // The list updates first; the stacked diffs follow as soon as git has answered.
     await waitForFrame(setup, (frame) => !frame.includes("b.txt changed"), "b.txt to leave the reader");
     expect(setup.captureCharFrame()).toContain("c.txt changed");
     expect(footer(setup).status).toContain("c.txt");
@@ -461,7 +450,6 @@ test("keeps the highlight near its place when its file is committed", () =>
 
 test("redraws an edited diff in place, and leaves the reader alone while nothing changes", () =>
   withDirectory(async (directory) => {
-    // 60 rewritten lines make a diff of 120 rows: the removed lines first, then the added ones.
     await createRepository(directory, { "long.txt": numbered(80) });
     await writeFile(join(directory, "long.txt"), numbered(80, rewrite("edited")));
     await using setup = await createTestRenderer({ width: 100, height: 14 });
@@ -478,12 +466,10 @@ test("redraws an edited diff in place, and leaves the reader alone while nothing
     expect(before).toBeGreaterThan(60);
     expect(setup.captureCharFrame()).toContain("edited");
 
-    // Several idle polls pass with nothing to redraw.
     await new Promise((resolve) => setTimeout(resolve, 250));
     await setup.renderOnce();
     expect(scroller(setup).scrollTop).toBe(before);
 
-    // The same file rewritten again: the new text appears where the reader already is.
     await writeFile(join(directory, "long.txt"), numbered(80, rewrite("revised")));
     await waitForText(setup, "revised");
     expect(setup.captureCharFrame()).not.toContain("edited");
@@ -508,7 +494,6 @@ test("stops reading git once the diff screen is closed", () =>
     git(directory, "commit", "--all", "--quiet", "-m", "while closed");
     await new Promise((resolve) => setTimeout(resolve, 200));
     await setup.renderOnce();
-    // Nothing refreshed behind the file view; reopening reads the repository fresh.
     setup.mockInput.pressKey("d");
     await waitForText(setup, "No changes");
   }));
@@ -529,14 +514,12 @@ test("moving through the list or clicking a file never pulses the pane borders",
     const writes: string[] = [];
     for (const id of ["browser-panel", "viewer-panel"]) watchBorder(setup.renderer.root, id, writes);
 
-    // A file with no text diff in between must not make the reader's border flash.
     setup.mockInput.pressKey("j");
     await waitForText(setup, "Binary file");
     setup.mockInput.pressKey("j");
     await waitForText(setup, "c changed");
     expect(writes).toEqual([]);
 
-    // Clicking from the reader: the list must not take focus and give it straight back.
     setup.mockInput.pressTab();
     await setup.renderOnce();
     writes.length = 0;
@@ -570,4 +553,60 @@ test("marks each change as staged, partly staged, not staged, or untracked in th
     expect(frame).toMatch(/M ◐ +partly\.txt/);
     expect(frame).toMatch(/M ○ +loose\.txt/);
     expect(frame).toMatch(/\? +new\.txt/);
+  }));
+
+test("tracks the active hunk in the footer, reports hunk boundaries, and opens the file at the active hunk", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "long.txt": numbered(80) });
+    await writeFile(join(directory, "long.txt"), numbered(80, { 2: "first edit", 65: "second edit" }));
+    await using setup = await createTestRenderer({ width: 110, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "1/2 hunks");
+
+    setup.mockInput.pressKey("p");
+    await waitForText(setup, "First hunk.");
+
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "2/2 hunks");
+    expect(setup.captureCharFrame()).toContain("second edit");
+
+    setup.mockInput.pressKey("n");
+    await waitForText(setup, "Last hunk.");
+
+    setup.mockInput.pressKey("o");
+    await waitForText(setup, "65  second edit");
+    expect(footer(setup).status).toContain("READER");
+  }));
+
+test("c collapses and expands a file diff, and x toggles expanded diff context", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "ctx.txt": numbered(40) });
+    await writeFile(join(directory, "ctx.txt"), numbered(40, { 20: "line twenty edited" }));
+    await using setup = await createTestRenderer({ width: 110, height: 30 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "line twenty edited");
+    expect(setup.captureCharFrame()).not.toContain("line 10");
+
+    setup.mockInput.pressKey("c");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).not.toContain("line twenty edited");
+    expect(setup.captureCharFrame()).toContain("▸ M ○ ctx.txt");
+
+    setup.mockInput.pressKey("c");
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("line twenty edited");
+
+    setup.mockInput.pressKey("x");
+    await waitForText(setup, "wide context");
+    await waitForText(setup, "line 10");
+
+    setup.mockInput.pressKey("x");
+    await waitForFrame(setup, (frame) => !frame.includes("line 10"), "normal context again");
+    expect(headerRow(setup)).not.toContain("wide context");
   }));
