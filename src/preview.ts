@@ -10,7 +10,6 @@ function targetLine(): { gutter: string; content: string } {
   return { gutter: theme.targetGutter, content: theme.targetBg };
 }
 
-/** A read-only look at the highlighted search result's file. Its own pane, so hiding it leaves the reader as it was. */
 export class HitPreview {
   readonly root: ScrollBoxRenderable;
   private readonly code: CodeRenderable;
@@ -18,7 +17,6 @@ export class HitPreview {
   private document?: Document;
   private needle = "";
   private line?: number;
-  /** Bumped when a newer result is asked for or the preview is hidden, so a slow read cannot show a stale file. */
   private request = 0;
 
   constructor(
@@ -36,7 +34,6 @@ export class HitPreview {
       contentOptions: { flexDirection: "column", width: "auto" },
       scrollbarOptions: scrollbarStyle(),
       horizontalScrollbarOptions: { visible: false },
-      // Hidden panes have no size, so the scroll waits until the pane has one.
       onSizeChange: () => this.scrollToLine(),
     });
     this.code = new CodeRenderable(renderer, {
@@ -44,6 +41,7 @@ export class HitPreview {
       syntaxStyle: syntax.style,
       treeSitterClient: syntax.client,
       fg: theme.text,
+      selectionBg: theme.selectionBg,
       wrapMode: "none",
       flexShrink: 0,
       conceal: false,
@@ -53,7 +51,7 @@ export class HitPreview {
       target: this.code,
       minWidth: 3,
       paddingRight: 2,
-      fg: theme.muted,
+      fg: theme.dim,
       bg: "transparent",
       flexShrink: 0,
       onSizeChange: () => this.scrollToLine(),
@@ -65,8 +63,10 @@ export class HitPreview {
   restyle(): void {
     this.code.syntaxStyle = this.syntax.style;
     this.code.fg = theme.text;
-    this.lines.fg = theme.muted;
+    this.code.selectionBg = theme.selectionBg;
+    this.lines.fg = theme.dim;
     this.root.scrollbarOptions = scrollbarStyle();
+
     if (this.line !== undefined) this.lines.setLineColors(new Map([[this.line - 1, targetLine()]]));
   }
 
@@ -74,10 +74,10 @@ export class HitPreview {
     return this.root.visible;
   }
 
-  /** False when the file cannot be read as text, or a newer request or `hide` came first. */
   async show(path: string, line: number, query: string): Promise<boolean> {
     const request = ++this.request;
     let document = this.document?.path === path ? this.document : undefined;
+
     if (!document) {
       try {
         document = await readDocument(path);
@@ -85,8 +85,11 @@ export class HitPreview {
         return false;
       }
     }
+
     if (request !== this.request) return false;
+
     if (document !== this.document || query !== this.needle) this.present(document, query);
+
     this.line = line;
     this.lines.setLineColors(new Map([[line - 1, targetLine()]]));
     this.root.visible = true;
@@ -110,6 +113,7 @@ export class HitPreview {
 
   private scrollToLine(): void {
     if (this.line === undefined) return;
+
     const top = Math.max(0, this.line - 1 - Math.floor(this.root.viewport.height / 3));
     this.root.scrollTo({ x: 0, y: top });
   }

@@ -3,9 +3,11 @@ import {
   LineNumberRenderable,
   MarkdownRenderable,
   SyntaxStyle,
+  TextBufferRenderable,
   TreeSitterClient,
   pathToFiletype,
   type CliRenderer,
+  type Renderable,
   type ScrollBoxRenderable,
 } from "@opentui/core";
 import { homedir } from "node:os";
@@ -26,7 +28,6 @@ const supportedLanguages = new Set([
   ...extraLanguages,
 ]);
 
-/** The bundled grammar for a file, if there is one; anything else is shown as plain text. */
 export function languageFor(path: string): string | undefined {
   const detected = pathToFiletype(path);
   return detected && supportedLanguages.has(detected) ? detected : undefined;
@@ -69,8 +70,16 @@ function syntaxStyles(): StyleMap {
   };
 }
 
+function applySelectionTint(node: Renderable): void {
+  if (node instanceof TextBufferRenderable) {
+    node.selectionBg = theme.selectionBg;
+    node.selectionFg = undefined;
+  }
+
+  for (const child of node.getChildren()) applySelectionTint(child);
+}
+
 export class CodeView {
-  /** Shared with the diff view so both highlight with the same colours and one parser worker. */
   readonly syntax: { style: SyntaxStyle; readonly client: TreeSitterClient };
   private readonly client: TreeSitterClient;
   private style: SyntaxStyle;
@@ -81,11 +90,10 @@ export class CodeView {
   private closing?: Promise<void>;
   private wrap = false;
   private document?: Document;
-  /** Markdown shows rendered unless the reader asked for its source. */
   private source = false;
   private needle?: string;
+  private activeLine?: number;
 
-  /** `onLayout` fires when the document's rendered size changes: a new file, toggled wrapping, a resize. */
   constructor(
     private readonly renderer: CliRenderer,
     private readonly options: { onLayout?: () => void } = {},
@@ -102,6 +110,7 @@ export class CodeView {
       syntaxStyle: this.style,
       treeSitterClient: this.client,
       fg: theme.text,
+      selectionBg: theme.selectionBg,
       wrapMode: "none",
       flexShrink: 0,
       conceal: false,
@@ -112,7 +121,7 @@ export class CodeView {
       target: this.code,
       minWidth: 3,
       paddingRight: 2,
-      fg: theme.muted,
+      fg: theme.dim,
       bg: "transparent",
       flexShrink: 0,
       showLineNumbers: false,
@@ -128,12 +137,18 @@ export class CodeView {
       flexShrink: 0,
       paddingLeft: 2,
       paddingRight: 2,
+      renderBlock: (_block, context) => {
+        const node = context.defaultRender();
+
+        if (node) applySelectionTint(node);
+
+        return node;
+      },
       onSizeChange: () => this.options.onLayout?.(),
     });
     this.preview.visible = false;
   }
 
-  /** Returns the style that was replaced; destroy it once the diff and the preview have moved to `syntax.style`. */
   restyle(): SyntaxStyle {
     const previous = this.style;
     this.style = SyntaxStyle.fromStyles(syntaxStyles(), this.renderer.nativeScene);
@@ -141,9 +156,28 @@ export class CodeView {
     this.code.syntaxStyle = this.style;
     this.preview.syntaxStyle = this.style;
     this.code.fg = theme.text;
+    this.code.selectionBg = theme.selectionBg;
     this.preview.fg = theme.text;
-    this.lines.fg = theme.muted;
+    applySelectionTint(this.preview);
+    this.lines.fg = theme.dim;
+    this.paintActiveLine();
     return previous;
+  }
+
+  setActiveLine(line: number | undefined): void {
+    if (line === this.activeLine) return;
+
+    this.activeLine = line;
+    this.paintActiveLine();
+  }
+
+  private paintActiveLine(): void {
+    if (this.activeLine === undefined) {
+      this.lines.clearAllLineColors();
+      return;
+    }
+
+    this.lines.setLineColors(new Map([[this.activeLine, { gutter: theme.targetGutter, content: theme.targetBg }]]));
   }
 
   mount(viewer: ScrollBoxRenderable): void {
@@ -152,7 +186,6 @@ export class CodeView {
     viewer.add(this.preview);
   }
 
-  /** Wrapped text must be laid out against the viewport width, so the scroll content stops growing with the text. */
   setWrap(wrap: boolean): void {
     this.wrap = wrap;
     this.code.wrapMode = wrap ? "word" : "none";
@@ -162,9 +195,9 @@ export class CodeView {
     this.fitContent();
   }
 
-  /** Rendered Markdown always wraps to the viewport; source and other files scroll sideways unless wrapping. */
   private fitContent(): void {
     if (!this.viewer) return;
+
     const fill = this.wrap || this.previewing;
     this.viewer.contentOptions = fill
       ? { flexDirection: "column", width: "100%" }
@@ -172,9 +205,9 @@ export class CodeView {
     this.viewer.scrollTo({ x: 0, y: this.viewer.scrollTop });
   }
 
-  /** Rendered Markdown is never marked. */
   setHighlight(query: string | undefined): void {
     if (this.needle === query) return;
+
     this.needle = query;
     this.present();
   }
@@ -187,16 +220,18 @@ export class CodeView {
     return this.isMarkdown && !this.source && (this.document?.lineCount ?? 0) > 0;
   }
 
-  /** Returns whether the file is now rendered. */
   toggleSource(): boolean {
     if (this.isMarkdown) this.source = !this.source;
+
     this.present();
     return this.previewing;
   }
 
   show(document: Document): string | undefined {
     const language = languageFor(document.path);
+
     if (document.path !== this.document?.path) this.source = false;
+
     this.document = document;
     this.present();
     return language;
@@ -210,11 +245,15 @@ export class CodeView {
 
   private present(): void {
     const document = this.document;
+
     if (!document) return;
+
     const language = languageFor(document.path);
     this.preview.visible = this.previewing;
     this.lines.visible = !this.previewing;
+
     if (this.previewing) this.preview.content = document.text;
+
     this.code.filetype =
       document.lineCount === 0 ? undefined : (language ?? (this.needle ? PLAIN_FILETYPE : undefined));
     this.code.onHighlight = markMatches(this.needle);
@@ -225,6 +264,7 @@ export class CodeView {
 
   destroy(): Promise<void> {
     if (this.closing) return this.closing;
+
     this.lines.destroyRecursively();
     this.preview.destroyRecursively();
     this.style.destroy();

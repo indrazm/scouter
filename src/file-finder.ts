@@ -1,4 +1,4 @@
-import { TextRenderable, type KeyEvent, type RenderContext } from "@opentui/core";
+import { BoxRenderable, TextRenderable, type KeyEvent, type RenderContext } from "@opentui/core";
 import type { FileExplorer, RowStyle } from "./explorer";
 import type { TreeEntry } from "./file-tree";
 import type { Footer } from "./footer";
@@ -16,27 +16,21 @@ import {
 import { styled } from "./styled";
 import { theme } from "./theme";
 
-/** Fewer characters than this would match most lines of most files, so the search waits for more. */
 const MIN_TEXT_QUERY = 2;
-/** Typing keeps going without a scan starting after every key; it starts once the keys pause. */
 const SCAN_DELAY_MS = 150;
 
 interface FileFinderHost {
   browser: FileExplorer;
   footer: Footer;
   rootPath(): string | undefined;
-  /** `relativePath` is relative to the browsed folder. Ignored paths are left out of the index. */
   isIgnored(relativePath: string): boolean;
   styleOf(entry: TreeEntry): RowStyle;
   showTree(selectedPath: string): void;
-  /** The user chose a row. `typed` is what was typed, empty when Enter was pressed with nothing typed. */
   pick(picked: TreeEntry, typed: string): void;
-  /** The highlighted row is a text search result to look at, or, with undefined, there is none to look at. */
   preview(entry: TreeEntry | undefined, query: string): void;
   isDestroyed(): boolean;
 }
 
-/** `files` narrows by name; `text` lists the lines inside files that contain what is typed. */
 type FindMode = "files" | "text";
 
 interface Finding {
@@ -46,7 +40,6 @@ interface Finding {
   truncated: boolean;
   returnTo?: string;
   text?: TextProgress;
-  /** Identifies the current text search, so a stale one stops and cannot overwrite a newer one. */
   scan: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -59,11 +52,12 @@ function toHitEntry({ path, relative, line, text, at, length }: TextHit): TreeEn
   return { name: relative, path, kind: "file", depth: 0, state: "collapsed", match: { line, text, at, length } };
 }
 
-function promptLine(query: string, status: string) {
+function promptLine(mode: FindMode, query: string, status: string) {
   return styled([
-    { text: "/ ", fg: theme.accent, bold: true },
+    { text: mode === "files" ? "/ " : "≡ ", fg: theme.accent, bold: true },
     { text: query, fg: theme.text },
-    { text: `   ${status}`, fg: theme.dim },
+    { text: "▎", fg: theme.accent },
+    { text: `  ${status}`, fg: theme.dim },
   ]);
 }
 
@@ -71,39 +65,53 @@ function countText(total: number, noun: string, plural: string): string {
   return `${total.toLocaleString("en-US")} ${total === 1 ? noun : plural}`;
 }
 
-/** Kept short because the list it sits above is narrow. */
 function textStatus(progress: TextProgress): string {
   if (!progress.done)
     return `searching ${progress.scanned.toLocaleString("en-US")}/${progress.total.toLocaleString("en-US")}`;
+
   if (!progress.hits.length) return "no matches";
+
   const count = countText(progress.hits.length, "match", "matches");
+
   if (!progress.truncated) return count;
+
   return progress.hits.length >= MAX_TEXT_HITS ? `first ${MAX_TEXT_HITS} matches` : `${count}+`;
 }
 
-/** `/` over the file list. Tab switches between matching file names and searching inside files, keeping what is typed. */
 export class FileFinder {
-  readonly bar: TextRenderable;
+  readonly bar: BoxRenderable;
+  private readonly text: TextRenderable;
   private finding?: Finding;
-  /** What the prompt line says, so it can be drawn again in other colours. */
-  private line = { query: "", status: "" };
+  private line: { mode: FindMode; query: string; status: string } = { mode: "files", query: "", status: "" };
 
   constructor(
     context: RenderContext,
     private readonly host: FileFinderHost,
   ) {
-    this.bar = new TextRenderable(context, {
+    this.bar = new BoxRenderable(context, {
       id: "find-bar",
+      height: 2,
+      width: "100%",
+      flexShrink: 0,
+      paddingLeft: 1,
+      paddingRight: 1,
+      border: ["bottom"],
+      borderColor: theme.border,
+    });
+    this.text = new TextRenderable(context, {
       height: 1,
+      width: "100%",
       flexShrink: 0,
       wrapMode: "none",
       selectable: false,
     });
+    this.bar.add(this.text);
     this.bar.visible = false;
   }
 
   restyle(): void {
-    this.bar.content = promptLine(this.line.query, this.line.status);
+    this.bar.borderColor = theme.border;
+    this.text.content = promptLine(this.line.mode, this.line.query, this.line.status);
   }
 
   get active(): boolean {
@@ -112,7 +120,9 @@ export class FileFinder {
 
   async start(): Promise<void> {
     const root = this.host.rootPath();
+
     if (!root || this.finding) return;
+
     const finding: Finding = {
       mode: "files",
       query: "",
@@ -124,36 +134,44 @@ export class FileFinder {
     this.host.footer.setPrompt("files");
     this.update();
     const { entries, truncated } = await indexTree(root, (path) => this.host.isIgnored(treeRelative(root, path)));
+
     if (this.host.isDestroyed() || this.finding !== finding) return;
+
     finding.entries = entries;
     finding.truncated = truncated;
     this.restartScan(finding);
     this.update();
   }
 
-  /** Keys while the prompt is open. Ctrl and Alt chords are left alone, so Ctrl+C still quits. */
   handleKey(key: KeyEvent): boolean {
     const finding = this.finding;
+
     if (!finding || !isPlain(key)) return false;
+
     key.preventDefault();
+
     if (key.name === "escape") this.end();
     else if (key.name === "return") this.pick();
     else if (key.name === "tab") this.switchMode(finding);
     else if (key.name === "backspace") this.type(finding.query.slice(0, -1));
     else if (key.name === "up" || key.name === "down") this.moveHighlight(key.name === "up" ? -1 : 1);
     else if (isTyped(key)) this.type(finding.query + key.sequence);
+
     return true;
   }
 
   private moveHighlight(delta: number): void {
     this.host.browser.moveSelection(delta);
+
     if (this.finding?.mode === "text" && this.finding.text)
       this.host.preview(this.host.browser.selected(), this.finding.query);
   }
 
   private type(query: string): void {
     const finding = this.finding;
+
     if (!finding) return;
+
     finding.query = query;
     this.restartScan(finding);
     this.update();
@@ -166,21 +184,25 @@ export class FileFinder {
     this.update();
   }
 
-  /** Drops any text search under way and, in text mode, starts a new one once typing pauses. */
   private restartScan(finding: Finding): void {
     finding.scan += 1;
     clearTimeout(finding.timer);
     finding.text = undefined;
+
     if (finding.mode !== "text" || !finding.entries || finding.query.length < MIN_TEXT_QUERY) return;
+
     finding.timer = setTimeout(() => void this.scan(finding), SCAN_DELAY_MS);
     finding.timer.unref?.();
   }
 
   private async scan(finding: Finding): Promise<void> {
     const { entries, query, scan } = finding;
+
     if (!entries) return;
+
     await searchText(entries, query, (progress) => {
       if (this.host.isDestroyed() || this.finding !== finding || finding.scan !== scan) return false;
+
       finding.text = progress;
       this.update();
       return true;
@@ -188,14 +210,17 @@ export class FileFinder {
   }
 
   private say(query: string, status: string): void {
-    this.line = { query, status };
+    this.line = { mode: this.finding?.mode ?? "files", query, status };
     this.restyle();
   }
 
   private update(): void {
     const finding = this.finding;
+
     if (!finding) return;
+
     this.bar.visible = true;
+
     if (!finding.query) this.showEmptyPrompt(finding);
     else if (!finding.entries) this.showIndexing(finding);
     else if (finding.mode === "files") this.showNames(finding, finding.entries);
@@ -227,16 +252,18 @@ export class FileFinder {
 
   private showText(finding: Finding): void {
     const progress = finding.text;
+
     if (finding.query.length < MIN_TEXT_QUERY || !progress) {
       const short = finding.query.length < MIN_TEXT_QUERY;
       this.say(finding.query, short ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…");
       this.host.browser.show([], "");
-      // A short query matches nothing, but while the next results are on their way the last one stays in view.
+
       if (short) this.host.preview(undefined, "");
+
       return;
     }
+
     const rows = progress.hits.map(toHitEntry);
-    // The highlight stays on the file it was on while results keep arriving.
     const kept = this.host.browser.selected()?.path;
     const selected = rows.some((row) => row.path === kept) ? kept : rows[0]?.path;
     this.host.browser.show(rows, selected ?? "", (row) => this.host.styleOf(row));
@@ -246,7 +273,9 @@ export class FileFinder {
 
   private end(select?: string): void {
     const finding = this.finding;
+
     if (!finding) return;
+
     finding.scan += 1;
     clearTimeout(finding.timer);
     this.finding = undefined;
@@ -256,11 +285,11 @@ export class FileFinder {
     this.host.showTree(select ?? finding.returnTo ?? this.host.rootPath() ?? "");
   }
 
-  /** Enter, or a click on a row. */
   pick(): void {
     const typed = this.finding?.query ?? "";
     const picked = this.host.browser.selected();
     this.end(picked?.path);
+
     if (picked) this.host.pick(picked, typed);
   }
 }

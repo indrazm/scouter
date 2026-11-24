@@ -18,29 +18,28 @@ import {
   withDirectory,
 } from "./fixtures";
 
-// The mode is shared by the whole process, so a test that changes it must put it back for the next one.
 afterEach(() => {
   setThemeMode("dark");
 });
 
-/** The terminal reports that the system went light or dark, as terminals that announce it do. */
 function announce(setup: TestRendererSetup, mode: ThemeMode): void {
   setup.renderer.emit("theme_mode", mode);
 }
 
-/** Whether `text` is on screen in the plain text colour of `mode`. */
 function isDrawnIn(setup: TestRendererSetup, text: string, mode: ThemeMode): boolean {
   return textColorOf(setup, text)?.join() === channels(palettes[mode].text).join();
 }
 
-function sidebarBrightness(setup: TestRendererSetup): number {
-  const panel = setup.renderer.root.findDescendantById("browser-panel");
-  if (!(panel instanceof BoxRenderable)) throw new Error("No sidebar.");
-  const [red, green, blue] = panel.backgroundColor.toInts();
+function statusBrightness(setup: TestRendererSetup): number {
+  const band = setup.renderer.root.findDescendantById("status");
+
+  if (!(band instanceof BoxRenderable)) throw new Error("No status bar.");
+
+  const [red, green, blue] = band.backgroundColor.toInts();
   return (red * 299 + green * 587 + blue * 114) / 255000;
 }
 
-test("when the system goes light the sidebar, text, welcome screen and focus border follow, and back to dark again", () =>
+test("when the system goes light the status bar, text, welcome screen and focus border follow, and back to dark again", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "alpha.txt"), "a\n");
     await writeFile(join(directory, "beta.txt"), "b\n");
@@ -48,7 +47,7 @@ test("when the system goes light the sidebar, text, welcome screen and focus bor
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
     await waitForText(setup, "beta.txt");
-    await waitForFrame(setup, () => sidebarBrightness(setup) < 0.5, "the dark sidebar");
+    await waitForFrame(setup, () => statusBrightness(setup) < 0.5, "the dark status bar");
     expect(textColorOf(setup, "beta.txt")).toEqual(channels(palettes.dark.text));
     expect(textColorOf(setup, "Select a file and press Enter.")).toEqual(channels(palettes.dark.accentSoft));
     expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(
@@ -57,7 +56,7 @@ test("when the system goes light the sidebar, text, welcome screen and focus bor
 
     announce(setup, "light");
     await waitForFrame(setup, () => isDrawnIn(setup, "beta.txt", "light"), "the file list drawn in light colours");
-    expect(sidebarBrightness(setup)).toBeGreaterThan(0.5);
+    expect(statusBrightness(setup)).toBeGreaterThan(0.5);
     expect(theme.text).toBe(palettes.light.text);
     expect(textColorOf(setup, "beta.txt")).toEqual(channels(palettes.light.text));
     expect(textColorOf(setup, "Select a file and press Enter.")).toEqual(channels(palettes.light.accentSoft));
@@ -68,7 +67,7 @@ test("when the system goes light the sidebar, text, welcome screen and focus bor
 
     announce(setup, "dark");
     await waitForFrame(setup, () => isDrawnIn(setup, "beta.txt", "dark"), "the file list drawn in dark colours again");
-    expect(sidebarBrightness(setup)).toBeLessThan(0.5);
+    expect(statusBrightness(setup)).toBeLessThan(0.5);
   }));
 
 test("changing the mode keeps the open file, its scroll position and the pane that has focus", () =>
@@ -82,7 +81,9 @@ test("changing the mode keeps the open file, its scroll position and the pane th
     await using app = new ScouterApp(setup.renderer);
     await app.open(path);
     const code = setup.renderer.root.findDescendantById("document");
+
     if (!(code instanceof CodeRenderable)) throw new Error("No code view.");
+
     await code.highlightingDone;
     setup.mockInput.pressKey("G");
     await waitForText(setup, "Bot");
@@ -125,7 +126,6 @@ test("the changes screen is drawn in the new mode's diff colours", () =>
     expect(setup.captureCharFrame()).toContain("const two = 22;");
   }));
 
-/** Switches to light and waits until the plain text of `anchor` is drawn in the light colour. */
 async function goLight(
   setup: TestRendererSetup,
   anchor: string,
@@ -148,11 +148,11 @@ test("the reader header, footer and scrollbar are drawn again in the new colours
     await app.open(path);
     await waitForText(setup, "80 lines");
     expect(textColorOf(setup, "read-only")).toEqual(channels(palettes.dark.dim));
-    expect(textColorOf(setup, "█")).toEqual(channels(palettes.dark.muted));
+    expect(textColorOf(setup, "█") ?? textColorOf(setup, "▀")).toEqual(channels(palettes.dark.muted));
 
     await goLight(setup, "read-only", "dim");
     expect(textColorOf(setup, "80 lines")).toEqual(channels(palettes.light.muted));
-    expect(textColorOf(setup, "█")).toEqual(channels(palettes.light.muted));
+    expect(textColorOf(setup, "█") ?? textColorOf(setup, "▀")).toEqual(channels(palettes.light.muted));
     const tint = tintedBackground(undefined);
     const status = rowBackgrounds(setup, 12);
     expect(status.some((background) => background.join() === channels(tint).join())).toBe(true);
@@ -206,10 +206,10 @@ test("the bands naming each file in the diff take the new tint", () =>
     setup.mockInput.pressKey("d");
     await waitForText(setup, "const one = 2;");
     const reader = setup.renderer.root.findDescendantById("viewer-panel");
+
     if (!(reader instanceof BoxRenderable)) throw new Error("No reader.");
 
     announce(setup, "light");
     await waitForFrame(setup, () => hasBackground(setup, palettes.light.addedBg), "the diff in light colours");
-    // Only the rows above the footer, which is tinted too.
     expect(hasBackgroundFrom(setup, tintedBackground(undefined), reader.x, 14)).toBe(true);
   }));

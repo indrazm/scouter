@@ -11,7 +11,6 @@ import {
   type ThemeMode,
 } from "../src/theme";
 
-/** How much light a colour gives off, from 0 to 1, as WCAG defines it. */
 function luminance(hex: string): number {
   const { r, g, b } = RGBA.fromHex(hex);
   return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b);
@@ -21,7 +20,6 @@ function linear(channel: number): number {
   return channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
-/** WCAG contrast ratio between two colours: 1 (the same) to 21 (black on white). */
 function contrast(foreground: string, background: string): number {
   const [lighter, darker] = [luminance(foreground), luminance(background)].toSorted((left, right) => right - left);
   return ((lighter ?? 0) + 0.05) / ((darker ?? 0) + 0.05);
@@ -41,20 +39,29 @@ test("both palettes define every colour, so neither mode can be left half done",
 test.each(modes)("in %s mode text can be read on the sidebar and on the added and removed lines", (mode) => {
   const palette = palettes[mode];
   const background = palette.fallbackBackground;
-  for (const name of ["text", "muted", "accent", "accentSoft", "added", "removed", "modified", "error"] as const) {
+  for (const name of [
+    "text",
+    "muted",
+    "accent",
+    "accentSoft",
+    "added",
+    "removed",
+    "modified",
+    "error",
+    "folder",
+  ] as const) {
     expect(contrast(palette[name], background)).toBeGreaterThanOrEqual(4.5);
   }
   for (const name of ["keyword", "string", "comment", "constant", "function", "punctuation"] as const) {
     expect(contrast(palette.syntax[name], background)).toBeGreaterThanOrEqual(4.5);
   }
-  // Dim text (paths, hints) is meant to recede, but must stay visible.
   expect(contrast(palette.dim, background)).toBeGreaterThanOrEqual(3);
-  // Ignored paths recede further than dim text, but must not vanish.
   expect(contrast(palette.ignored, background)).toBeGreaterThanOrEqual(1.8);
   expect(contrast(palette.ignored, background)).toBeLessThan(contrast(palette.dim, background));
-  for (const tint of [palette.addedBg, palette.removedBg, palette.targetBg]) {
+  for (const tint of [palette.addedBg, palette.removedBg, palette.targetBg, palette.rowActiveBg, palette.selectionBg]) {
     expect(contrast(palette.text, tint)).toBeGreaterThanOrEqual(7);
   }
+  expect(contrast(palette.accent, palette.rowActiveBg)).toBeGreaterThanOrEqual(4.5);
   expect(contrast(palette.accentInk, palette.accent)).toBeGreaterThanOrEqual(4.5);
   expect(contrast(palette.matchFg, palette.matchBg)).toBeGreaterThanOrEqual(7);
 });

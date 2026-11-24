@@ -16,16 +16,25 @@ export class SidebarResizer {
   ) {
     this.handle = new BoxRenderable(renderer, {
       id: "sidebar-resizer",
+      position: "absolute",
+      top: 1,
+      bottom: 1,
+      left: 0,
       width: 1,
-      height: "100%",
-      flexShrink: 0,
+      zIndex: 10,
+      border: ["left"],
+      borderStyle: "single",
+      borderColor: transparent,
       onMouseOver: () => {
-        this.handle.backgroundColor = theme.hover;
+        if (this.drag) return;
+
+        this.handle.borderColor = theme.accentSoft;
         this.setPointer("col-resize");
       },
       onMouseOut: () => {
         if (this.drag) return;
-        this.handle.backgroundColor = transparent;
+
+        this.handle.borderColor = transparent;
         this.setPointer("default");
       },
       onMouseDown: this.startDrag,
@@ -36,13 +45,11 @@ export class SidebarResizer {
     renderer.on("resize", this.fit);
   }
 
-  /**
-   * Applies the width the user chose, or by default a quarter of the terminal (28 to 40 columns), within what the
-   * reader leaves room for.
-   */
   readonly fit = (): void => {
     const defaultWidth = Math.min(40, Math.max(28, Math.floor(this.renderer.width * 0.25)));
-    this.panel.width = this.constrain(this.preferredWidth ?? defaultWidth);
+    const width = this.constrain(this.preferredWidth ?? defaultWidth);
+    this.panel.width = width;
+    this.handle.left = Math.max(0, width - 1);
   };
 
   nudge(direction: "left" | "right"): void {
@@ -55,7 +62,7 @@ export class SidebarResizer {
   }
 
   private constrain(width: number): number {
-    const maximum = Math.max(1, this.renderer.width - MIN_READER_COLUMNS - 1);
+    const maximum = Math.max(1, this.renderer.width - MIN_READER_COLUMNS);
     return Math.min(maximum, Math.max(Math.min(MIN_SIDEBAR_COLUMNS, maximum), Math.round(width)));
   }
 
@@ -71,23 +78,26 @@ export class SidebarResizer {
 
   private readonly startDrag = (event: MouseEvent): void => {
     if (event.button !== MouseButton.LEFT) return;
+
     event.preventDefault();
     event.stopPropagation();
     this.drag = { startX: event.x, startWidth: this.panel.width };
-    this.handle.backgroundColor = theme.accent;
+    this.handle.borderColor = theme.accent;
     this.setPointer("col-resize");
   };
 
   private readonly dragTo = (event: MouseEvent): void => {
     if (!this.drag) return;
+
     event.stopPropagation();
     this.setWidth(this.drag.startWidth + event.x - this.drag.startX);
   };
 
   private readonly finishDrag = (): void => {
     if (!this.drag) return;
+
     this.drag = undefined;
-    this.handle.backgroundColor = transparent;
+    this.handle.borderColor = transparent;
     this.setPointer("default");
   };
 }

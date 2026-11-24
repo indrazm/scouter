@@ -16,6 +16,7 @@ test("drags the divider without changing focus or selecting text and restores th
     const sidebar = setup.renderer.root.findDescendantById("browser-panel");
     const divider = setup.renderer.root.findDescendantById("sidebar-resizer");
     const viewer = setup.renderer.root.findDescendantById("viewer-panel");
+
     if (
       !(sidebar instanceof BoxRenderable) ||
       !(divider instanceof BoxRenderable) ||
@@ -23,11 +24,12 @@ test("drags the divider without changing focus or selecting text and restores th
     ) {
       throw new Error("Missing split panes.");
     }
+
     const initialWidth = sidebar.width;
     await setup.mockMouse.drag(divider.x, divider.y + 5, divider.x + 20, divider.y + 5);
     await setup.renderOnce();
     expect(sidebar.width).toBe(initialWidth + 20);
-    expect(sidebar.width + divider.width + viewer.width).toBe(120);
+    expect(sidebar.width + viewer.width).toBe(120);
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
     expect(setup.renderer.hasSelection).toBe(false);
     expect(setup.captureCharFrame()).toContain("1  still reading");
@@ -51,6 +53,7 @@ test("only left-button drags resize the divider and pane widths are clamped at b
   const sidebar = setup.renderer.root.findDescendantById("browser-panel");
   const divider = setup.renderer.root.findDescendantById("sidebar-resizer");
   const viewer = setup.renderer.root.findDescendantById("viewer-panel");
+
   if (
     !(sidebar instanceof BoxRenderable) ||
     !(divider instanceof BoxRenderable) ||
@@ -58,6 +61,7 @@ test("only left-button drags resize the divider and pane widths are clamped at b
   ) {
     throw new Error("Missing split panes.");
   }
+
   const initialWidth = sidebar.width;
   await setup.mockMouse.drag(divider.x, 5, divider.x + 20, 5, MouseButtons.RIGHT);
   await setup.renderOnce();
@@ -67,7 +71,7 @@ test("only left-button drags resize the divider and pane widths are clamped at b
   expect(sidebar.width).toBe(24);
   await setup.mockMouse.drag(divider.x, 5, 119, 5);
   await setup.renderOnce();
-  expect(sidebar.width).toBe(91);
+  expect(sidebar.width).toBe(92);
   expect(viewer.width).toBe(28);
 });
 
@@ -77,7 +81,9 @@ test("keyboard resizing works in either pane and is retained when the terminal g
   await app.open(import.meta.dir);
   await setup.renderOnce();
   const sidebar = setup.renderer.root.findDescendantById("browser-panel");
+
   if (!(sidebar instanceof BoxRenderable)) throw new Error("No sidebar mounted.");
+
   const initialWidth = sidebar.width;
   setup.mockInput.pressArrow("left", { ctrl: true });
   await setup.renderOnce();

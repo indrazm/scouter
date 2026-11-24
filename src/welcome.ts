@@ -1,18 +1,22 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
+import { version } from "../package.json";
+import { styled, type Segment } from "./styled";
 import { theme } from "./theme";
 
-const wordmark = ["╔═╗ ╔═╗ ╔═╗ ╦ ╦ ╔╦╗ ╔═╗ ╦═╗", "╚═╗ ║   ║ ║ ║ ║  ║  ║╣  ╠╦╝", "╚═╝ ╚═╝ ╚═╝ ╚═╝  ╩  ╚═╝ ╩╚═"];
+const wordmark = ["█▀▀ █▀▀ █▀█ █ █ ▀█▀ █▀▀ █▀▄", "▀▀█ █   █ █ █ █  █  █▀▀ █▀▄", "▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀ ▀"];
 
 const hints: [key: string, action: string][] = [
-  ["j k  ↑ ↓", "move"],
+  ["j k ↑ ↓", "move"],
   ["Enter", "open file or folder"],
   ["/", "find a file"],
   ["d", "changes in a git repository"],
   ["q", "quit"],
 ];
 
+const KEY_COLUMN_WIDTH = 7;
+
 export function createWelcome(context: RenderContext): BoxRenderable {
-  const { wordmark: wordmarkColors, accentSoft: keyColor, muted: mutedColor } = theme;
+  const { wordmark: wordmarkColors, accentSoft, border, dim, ignored, muted, text } = theme;
   const welcome = new BoxRenderable(context, {
     id: "welcome",
     flexGrow: 1,
@@ -22,33 +26,61 @@ export function createWelcome(context: RenderContext): BoxRenderable {
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-    // A short terminal shows the first hints, not ones smeared over the footer.
     overflow: "hidden",
   });
-  const text = (content: string, fg: string, options: { marginTop?: number } = {}): TextRenderable =>
+  const line = (content: Segment[] | string, fg?: string, marginTop = 0): TextRenderable =>
     new TextRenderable(context, {
-      content,
-      fg,
+      content: typeof content === "string" ? styled([{ text: content, fg }]) : styled(content),
       height: 1,
       flexShrink: 0,
+      marginTop,
       wrapMode: "none",
       selectable: false,
-      ...options,
     });
 
-  wordmark.forEach((row, index) => welcome.add(text(row, wordmarkColors[index]!)));
-  welcome.add(text("a quiet, read-only file viewer", mutedColor, { marginTop: 1 }));
-  welcome.add(text("Select a file and press Enter.", keyColor, { marginTop: 2 }));
+  wordmark.forEach((row, index) => welcome.add(line(row, wordmarkColors[index]!)));
+  welcome.add(
+    line(
+      [
+        { text: "a quiet, read-only file viewer", fg: muted },
+        { text: `  v${version}`, fg: dim },
+      ],
+      undefined,
+      1,
+    ),
+  );
+  welcome.add(line("Select a file and press Enter.", accentSoft, 1));
 
-  const keys = new BoxRenderable(context, { flexDirection: "column", flexShrink: 0, marginTop: 2 });
+  const card = new BoxRenderable(context, {
+    flexDirection: "column",
+    flexShrink: 0,
+    marginTop: 1,
+    paddingLeft: 2,
+    paddingRight: 2,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: border,
+  });
   for (const [key, action] of hints) {
-    const row = new BoxRenderable(context, { flexDirection: "row", height: 1, flexShrink: 0 });
-    row.add(text(key.padEnd(10), keyColor));
-    row.add(text(action, mutedColor));
-    keys.add(row);
+    card.add(
+      line([
+        { text: key.padStart(KEY_COLUMN_WIDTH), fg: accentSoft, bold: true },
+        { text: "  │  ", fg: border },
+        { text: action, fg: text },
+      ]),
+    );
   }
-  welcome.add(keys);
-  welcome.add(text("Press ? for every key.", keyColor, { marginTop: 2 }));
-  welcome.add(text("No editing. Just reading.", mutedColor, { marginTop: 1 }));
+  welcome.add(card);
+  welcome.add(
+    line(
+      [
+        { text: "Press ? for every key.", fg: accentSoft },
+        { text: "  ·  ", fg: ignored },
+        { text: "No editing. Just reading.", fg: dim },
+      ],
+      undefined,
+      1,
+    ),
+  );
   return welcome;
 }

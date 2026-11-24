@@ -9,8 +9,8 @@ interface HeadingStyle {
 }
 
 const LIST_ROWS = keySections.reduce((total, [, rows]) => total + 1 + rows.length, keySections.length - 1);
+const CARD_CHROME_ROWS = 2;
 
-/** The key list in one box over the panes. Any key press closes it. */
 export function createHelp(context: RenderContext, background: string): BoxRenderable {
   const overlay = new BoxRenderable(context, {
     id: "help",
@@ -22,15 +22,25 @@ export function createHelp(context: RenderContext, background: string): BoxRende
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "center",
-    // A short terminal shows the first sections rather than smearing rows past its edges.
     overflow: "hidden",
     backgroundColor: background,
     onSizeChange: () => centre(),
   });
-  const keys = new BoxRenderable(context, { flexDirection: "column", flexShrink: 0 });
-  // Centred while it fits; once it does not, it starts at the top so the first sections are the ones that show.
+  const card = new BoxRenderable(context, {
+    flexDirection: "column",
+    flexShrink: 0,
+    border: true,
+    borderStyle: "rounded",
+    borderColor: theme.accent,
+    title: " Keyboard Shortcuts ",
+    titleAlignment: "center",
+    titleColor: theme.accentSoft,
+    paddingLeft: 2,
+    paddingRight: 2,
+    backgroundColor: background,
+  });
   const centre = (): void => {
-    keys.marginTop = Math.max(0, Math.floor((overlay.height - LIST_ROWS) / 2));
+    card.marginTop = Math.max(0, Math.floor((overlay.height - (LIST_ROWS + CARD_CHROME_ROWS)) / 2));
   };
   const line = (content: Segment[] | string, style: HeadingStyle = {}): TextRenderable =>
     new TextRenderable(context, {
@@ -42,17 +52,18 @@ export function createHelp(context: RenderContext, background: string): BoxRende
       ...style,
     });
   for (const [title, rows] of keySections) {
-    keys.add(line(title, { fg: theme.muted, bold: true }));
+    card.add(line(title, { fg: theme.muted, bold: true }));
     for (const [key, action] of rows) {
-      keys.add(
+      card.add(
         line([
           { text: `  ${key.padEnd(KEY_COLUMN)}`, fg: theme.accentSoft },
           { text: action, fg: theme.text },
         ]),
       );
     }
-    if (title !== keySections.at(-1)?.[0]) keys.add(line(""));
+
+    if (title !== keySections.at(-1)?.[0]) card.add(line(""));
   }
-  overlay.add(keys);
+  overlay.add(card);
   return overlay;
 }

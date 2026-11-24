@@ -12,7 +12,7 @@ import { displayLabel } from "./files";
 import { handleListKey } from "./keys";
 import type { Change, ChangeKind } from "./git";
 import { scrollbarStyle, styled, type Segment } from "./styled";
-import { theme } from "./theme";
+import { theme, transparent } from "./theme";
 
 interface ChangeListOptions {
   onSelect: (change: Change | undefined) => void;
@@ -45,7 +45,6 @@ export function statusOf(kind: ChangeKind): { letter: string; color: string } {
   return { letter, color: theme[color] };
 }
 
-/** Files that differ from the base (the last commit, or the empty tree before the first one), one row each. */
 export class ChangeList extends ScrollBoxRenderable {
   private rows: ChangeRow[] = [];
   private selectedIndex = -1;
@@ -68,7 +67,6 @@ export class ChangeList extends ScrollBoxRenderable {
     this.options = options;
   }
 
-  /** If `selectedPath` is gone (committed, say), the highlight stays near where it was rather than jumping to the top. */
   show(changes: Change[], selectedPath?: string, truncated = false): void {
     const previous = this.selectedIndex;
     for (const row of this.rows) row.box.destroyRecursively();
@@ -80,12 +78,15 @@ export class ChangeList extends ScrollBoxRenderable {
     const nearby = Math.min(Math.max(previous, 0), changes.length - 1);
     this.selectIndex(changes.length ? (keep >= 0 ? keep : nearby) : -1);
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
+
     if (truncated) this.showNote(`Only the first ${changes.length.toLocaleString("en-US")} changes are listed.`);
   }
 
   repaint(): void {
     this.rows.forEach((row, index) => this.paintRow(row, index === this.selectedIndex));
+
     if (this.note) this.note.content = styled([{ text: this.noteText, fg: theme.modified }]);
+
     this.scrollbarOptions = scrollbarStyle();
   }
 
@@ -102,14 +103,18 @@ export class ChangeList extends ScrollBoxRenderable {
     this.add(this.note, 0);
   }
 
-  /** Moves the highlight to `path` without announcing it, for when the reader's scrolling is what moved. */
   highlight(path: string): void {
     const index = this.rows.findIndex((row) => row.change.path === path);
+
     if (index < 0 || index === this.selectedIndex) return;
+
     const previousRow = this.rows[this.selectedIndex];
+
     if (previousRow) this.paintRow(previousRow, false);
+
     this.selectedIndex = index;
     const row = this.rows[index];
+
     if (row) {
       this.paintRow(row, true);
       this.scrollChildIntoView(row.box);
@@ -141,15 +146,15 @@ export class ChangeList extends ScrollBoxRenderable {
       flexDirection: "row",
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
+
         event.preventDefault();
-        // No focus change here (0003); the owner focuses the pane the click leads to.
         this.selectIndex(index);
         this.options.onActivate();
       },
     });
     const text = (options: TextOptions): TextRenderable =>
       new TextRenderable(this.ctx, { height: 1, wrapMode: "none", selectable: false, ...options });
-    const status = text({ width: 4, flexShrink: 0 });
+    const status = text({ width: 5, flexShrink: 0 });
     const name = text({ flexGrow: 1, flexShrink: 1, minWidth: 0 });
     const counts = text({ flexShrink: 0, marginLeft: 1 });
     box.add(status);
@@ -162,14 +167,19 @@ export class ChangeList extends ScrollBoxRenderable {
   private selectIndex(index: number): void {
     const previous = this.selectedIndex;
     this.selectedIndex = Math.max(0, Math.min(index, this.rows.length - 1));
+
     if (!this.rows.length) this.selectedIndex = -1;
+
     const previousRow = this.rows[previous];
     const selectedRow = this.rows[this.selectedIndex];
+
     if (previousRow && previous !== this.selectedIndex) this.paintRow(previousRow, false);
+
     if (selectedRow) {
       this.paintRow(selectedRow, true);
       this.scrollChildIntoView(selectedRow.box);
     }
+
     if (previous !== this.selectedIndex) this.options.onSelect(selectedRow?.change);
   }
 
@@ -180,29 +190,49 @@ export class ChangeList extends ScrollBoxRenderable {
     const folder = posix.dirname(change.path);
     const origin = change.oldPath ? `  ← ${displayLabel(posix.basename(change.oldPath))}` : "";
     const mark = indexMark(change);
-    row.status.content = styled([{ text: letter, fg: color, bold: true }, { text: " " }, ...(mark ? [mark] : [])]);
-    row.name.content = styled([
+    row.box.backgroundColor = selected ? theme.rowActiveBg : transparent;
+    const statusParts: Segment[] = [
+      { text: selected ? "▎" : " ", fg: theme.accent },
+      { text: letter, fg: color, bold: true },
+      { text: " " },
+    ];
+
+    if (mark) statusParts.push(mark);
+
+    row.status.content = styled(statusParts);
+
+    const nameParts: Segment[] = [
       { text: name, fg: selected ? theme.accent : theme.text, bold: selected },
       { text: origin, fg: theme.dim },
-      ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
-    ]);
+    ];
+
+    if (folder !== ".") nameParts.push({ text: `  ${displayLabel(folder)}/`, fg: theme.dim });
+
+    row.name.content = styled(nameParts);
     row.counts.content = styled(countSegments(change));
   }
 }
 
-/** ● staged, ◐ partly staged, ○ not staged. Untracked files have no mark. */
 export function indexMark(change: Change): Segment | undefined {
   if (change.staged && change.unstaged) return { text: "◐", fg: theme.modified };
+
   if (change.staged) return { text: "●", fg: theme.added };
+
   if (change.unstaged) return { text: "○", fg: theme.dim };
+
   return undefined;
 }
 
 export function countSegments(change: Change): Segment[] {
   if (change.binary) return [{ text: "bin", fg: theme.dim }];
+
   if (change.added === undefined || change.removed === undefined) return [{ text: "new", fg: theme.dim }];
+
   const segments: Segment[] = [];
+
   if (change.added) segments.push({ text: `+${change.added}`, fg: theme.added });
+
   if (change.removed) segments.push({ text: `${segments.length ? " " : ""}−${change.removed}`, fg: theme.removed });
+
   return segments;
 }

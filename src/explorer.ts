@@ -10,8 +10,8 @@ import { extname, posix } from "node:path";
 import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "./files";
 import { handleListKey } from "./keys";
-import { scrollbarStyle, styled } from "./styled";
-import { theme } from "./theme";
+import { scrollbarStyle, styled, type Segment } from "./styled";
+import { theme, transparent } from "./theme";
 
 interface ExplorerOptions {
   onActivate: () => void;
@@ -33,7 +33,6 @@ interface ExplorerRow {
 
 const plainRow = (): RowStyle => ({});
 
-/** Private-use code points from the Nerd Fonts set, so they show as the icons only in a terminal using a Nerd Font. */
 const fileIcons: Record<string, string> = {
   ".js": "\ue74e",
   ".mjs": "\ue74e",
@@ -58,11 +57,48 @@ const fileIcons: Record<string, string> = {
   ".toml": "\uf013",
 };
 
-/** A text search result. The list is narrow, so what tells results apart comes first and the folder last. */
+function iconColor(entry: TreeEntry, folder: boolean): string {
+  if (folder) return theme.folder;
+
+  if (entry.kind === "link") return theme.accentSoft;
+
+  switch (extname(entry.name).toLowerCase()) {
+    case ".ts":
+    case ".mts":
+    case ".cts":
+    case ".tsx":
+    case ".jsx":
+    case ".go":
+    case ".css":
+      return theme.syntax.function;
+    case ".js":
+    case ".mjs":
+    case ".cjs":
+    case ".json":
+    case ".yaml":
+    case ".yml":
+    case ".toml":
+    case ".zig":
+      return theme.syntax.constant;
+    case ".md":
+    case ".mdx":
+      return theme.accentSoft;
+    case ".py":
+    case ".sh":
+      return theme.syntax.string;
+    case ".rs":
+    case ".html":
+      return theme.syntax.keyword;
+    default:
+      return theme.muted;
+  }
+}
+
 function matchContent(entry: TreeEntry, match: NonNullable<TreeEntry["match"]>, icon: string, selected: boolean) {
   const end = match.at + match.length;
   const folder = posix.dirname(entry.name);
-  return styled([
+  const segments: Segment[] = [
+    { text: selected ? "▎" : " ", fg: theme.accent },
     {
       text: `${icon} ${displayLabel(posix.basename(entry.name))}`,
       fg: selected ? theme.accent : theme.text,
@@ -72,8 +108,11 @@ function matchContent(entry: TreeEntry, match: NonNullable<TreeEntry["match"]>, 
     { text: displayLabel(match.text.slice(0, match.at)), fg: theme.muted },
     { text: displayLabel(match.text.slice(match.at, end)), fg: theme.accentSoft, bold: true },
     { text: displayLabel(match.text.slice(end)), fg: theme.muted },
-    ...(folder === "." ? [] : [{ text: `  ${displayLabel(folder)}/`, fg: theme.dim }]),
-  ]);
+  ];
+
+  if (folder !== ".") segments.push({ text: `  ${displayLabel(folder)}/`, fg: theme.dim });
+
+  return styled(segments);
 }
 
 export class FileExplorer extends ScrollBoxRenderable {
@@ -119,8 +158,8 @@ export class FileExplorer extends ScrollBoxRenderable {
       flexDirection: "row",
       onMouseDown: (event) => {
         if (event.button !== MouseButton.LEFT) return;
+
         event.preventDefault();
-        // No focus change here (0003); the owner focuses the pane the click leads to.
         this.selectIndex(index);
         this.onActivate();
       },
@@ -175,8 +214,11 @@ export class FileExplorer extends ScrollBoxRenderable {
     this.selectedIndex = Math.max(0, Math.min(index, this.rows.length - 1));
     const previousRow = this.rows[previous];
     const selectedRow = this.rows[this.selectedIndex];
+
     if (previousRow) this.paintRow(previousRow, previous);
+
     if (!selectedRow) return;
+
     this.paintRow(selectedRow, this.selectedIndex);
     this.scrollChildIntoView(selectedRow.box);
   }
@@ -194,10 +236,25 @@ export class FileExplorer extends ScrollBoxRenderable {
       : entry.kind === "link"
         ? "\uf0c1"
         : (fileIcons[extname(entry.name).toLowerCase()] ?? "\uf016");
-    row.text.content = entry.match
-      ? matchContent(entry, entry.match, icon, selected)
-      : `${"  ".repeat(entry.depth)}${marker}${icon} ${displayLabel(entry.name)}${folder ? "/" : ""}`;
-    row.text.fg = selected ? theme.accent : row.style.ignored ? theme.ignored : theme.text;
+    row.box.backgroundColor = selected ? theme.rowActiveBg : transparent;
+    const nameFg = selected ? theme.accent : row.style.ignored ? theme.ignored : theme.text;
+    const glyphFg = selected ? theme.accent : row.style.ignored ? theme.ignored : iconColor(entry, folder);
+
+    if (entry.match) {
+      row.text.content = matchContent(entry, entry.match, icon, selected);
+    } else {
+      const segments: Segment[] = [{ text: selected ? "▎" : " ", fg: theme.accent }];
+
+      if (entry.depth > 0) segments.push({ text: "│ ".repeat(entry.depth), fg: theme.ignored });
+
+      segments.push(
+        { text: marker, fg: selected ? theme.accent : theme.dim },
+        { text: `${icon} `, fg: glyphFg },
+        { text: `${displayLabel(entry.name)}${folder ? "/" : ""}`, fg: nameFg, bold: selected },
+      );
+      row.text.content = styled(segments);
+    }
+
     row.mark.content = row.style.letter
       ? styled([{ text: row.style.letter, fg: row.style.color ?? theme.text, bold: true }])
       : "";

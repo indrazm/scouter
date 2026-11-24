@@ -8,7 +8,9 @@ import { backgroundIntentsFrom, waitForText, withDirectory } from "./fixtures";
 
 function explorerCell(setup: TestRendererSetup, name: string): [number, number] {
   const explorer = setup.renderer.root.findDescendantById("browser");
+
   if (!(explorer instanceof ScrollBoxRenderable)) throw new Error("No explorer mounted.");
+
   const lines = setup.captureCharFrame().split("\n");
   const row = lines.findIndex(
     (line, index) =>
@@ -16,7 +18,9 @@ function explorerCell(setup: TestRendererSetup, name: string): [number, number] 
       index < explorer.y + explorer.height &&
       line.slice(explorer.x, explorer.x + explorer.width).includes(name),
   );
+
   if (row < 0) throw new Error(`No visible explorer row for ${name}.`);
+
   return [explorer.x + 7, row];
 }
 
@@ -44,7 +48,9 @@ test("clicks open files and toggle folders while ignoring right clicks and empty
     expect(setup.captureCharFrame()).not.toContain("\uf016 inside.txt");
     expect(setup.captureCharFrame()).toContain("1  mouse-opened content");
     const explorer = setup.renderer.root.findDescendantById("browser");
+
     if (!(explorer instanceof ScrollBoxRenderable)) throw new Error("No explorer mounted.");
+
     await setup.mockMouse.click(explorer.x + 7, explorer.y + explorer.height - 2);
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("▸ \uf07b folder/");
@@ -62,7 +68,9 @@ test("wheel scrolling and clicks use visible row bounds after keyboard scrolling
     await app.open(directory);
     await setup.renderOnce();
     const explorer = setup.renderer.root.findDescendantById("browser");
+
     if (!(explorer instanceof ScrollBoxRenderable)) throw new Error("No explorer mounted.");
+
     await setup.mockMouse.scroll(explorer.x + 7, explorer.y + 3, "down");
     await setup.renderOnce();
     expect(explorer.scrollTop).toBeGreaterThan(0);
@@ -75,7 +83,7 @@ test("wheel scrolling and clicks use visible row bounds after keyboard scrolling
     expect(setup.captureCharFrame()).not.toContain("1  opened file 59");
   }));
 
-test("uses Nerd Font icons, a wider responsive sidebar, and a tinted sidebar over the terminal-default background", () =>
+test("uses Nerd Font icons, a wider responsive sidebar, and the terminal-default background on both panes", () =>
   withDirectory(async (directory) => {
     await mkdir(join(directory, "folder"));
     await writeFile(join(directory, "source.ts"), 'const greeting = "hello";\n');
@@ -89,7 +97,9 @@ test("uses Nerd Font icons, a wider responsive sidebar, and a tinted sidebar ove
     await app.open(join(directory, "source.ts"));
     await setup.renderOnce();
     const code = setup.renderer.root.findDescendantById("document");
+
     if (!(code instanceof CodeRenderable)) throw new Error("No code view mounted.");
+
     await code.highlightingDone;
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("\uf07b folder/");
@@ -97,9 +107,11 @@ test("uses Nerd Font icons, a wider responsive sidebar, and a tinted sidebar ove
     expect(setup.captureCharFrame()).toContain("\ue60b settings.json");
     const sidebar = setup.renderer.root.findDescendantById("browser-panel");
     const viewer = setup.renderer.root.findDescendantById("viewer-panel");
+
     if (!(sidebar instanceof BoxRenderable) || !(viewer instanceof BoxRenderable)) throw new Error("Missing panes.");
+
     expect(backgroundIntentsFrom(setup, viewer.x, 14).every((intent) => intent === "default")).toBe(true);
-    expect(backgroundIntentsFrom(setup, 0, 14).some((intent) => intent !== "default")).toBe(true);
+    expect(sidebar.backgroundColor.toInts()[3]).toBe(0);
     expect(sidebar.width).toBe(30);
     setup.resize(60, 12);
     await setup.renderOnce();

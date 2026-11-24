@@ -4,16 +4,15 @@ import { theme } from "./theme";
 
 export interface HeaderBadge {
   text: string;
-  /** `pill` is a solid state chip; `quiet` is plain, low-contrast text. */
   kind: "pill" | "quiet";
 }
 
-/** One-line pane title; badges on the right carry state such as wrapping. */
 export class PaneHeader {
   readonly root: BoxRenderable;
   private readonly title: TextRenderable;
   private readonly badges: TextRenderable;
   private titleText = "";
+  private parentText?: string;
   private badgeList: HeaderBadge[] = [];
   private focused = false;
   private notice?: string;
@@ -21,11 +20,14 @@ export class PaneHeader {
   constructor(context: RenderContext, id: string) {
     this.root = new BoxRenderable(context, {
       id,
-      height: 1,
+      height: 2,
       width: "100%",
       flexDirection: "row",
       flexShrink: 0,
+      paddingLeft: 1,
       paddingRight: 1,
+      border: ["bottom"],
+      borderColor: theme.border,
     });
     const text = (options: Record<string, unknown>): TextRenderable =>
       new TextRenderable(context, { height: 1, wrapMode: "none", selectable: false, ...options });
@@ -36,8 +38,9 @@ export class PaneHeader {
     this.render();
   }
 
-  setTitle(title: string): void {
+  setTitle(title: string, parent?: string): void {
     this.titleText = title;
+    this.parentText = parent;
     this.render();
   }
 
@@ -48,28 +51,40 @@ export class PaneHeader {
 
   setFocused(focused: boolean): void {
     if (focused === this.focused) return;
+
     this.focused = focused;
     this.render();
   }
 
-  /** An error about the last action, shown in place of the title until cleared. */
   setNotice(notice: string | undefined): void {
     if (notice === this.notice) return;
+
     this.notice = notice;
     this.render();
   }
 
   restyle(): void {
+    this.root.borderColor = theme.border;
     this.render();
   }
 
   private render(): void {
-    this.title.content = this.notice
-      ? styled([{ text: this.notice, fg: theme.error, bold: true }])
-      : styled([{ text: this.titleText, fg: this.focused ? theme.text : theme.muted, bold: this.focused }]);
+    const parts: Segment[] = [];
+
+    if (this.parentText) parts.push({ text: this.parentText, fg: theme.dim });
+
+    parts.push({ text: this.titleText, fg: this.focused ? theme.text : theme.muted, bold: this.focused });
+    this.title.content = styled(parts);
+
+    if (this.notice) {
+      this.badges.content = styled([{ text: this.notice, fg: theme.error, bold: true }]);
+      return;
+    }
+
     const segments: Segment[] = [];
     for (const badge of this.badgeList) {
       if (segments.length) segments.push({ text: " " });
+
       segments.push(
         badge.kind === "pill"
           ? { text: ` ${badge.text} `, fg: theme.accentInk, bg: theme.accent, bold: true }
