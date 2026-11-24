@@ -57,7 +57,7 @@ test("the welcome screen names the keys a new reader needs", () =>
 test("? shows every key, and any key closes it again", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "a.txt"), "hello\n");
-    await using setup = await createTestRenderer({ width: 100, height: 38 });
+    await using setup = await createTestRenderer({ width: 100, height: 42 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
     await setup.renderOnce();
@@ -177,18 +177,23 @@ test("gg and G go to the top and bottom, and a number before G goes to that line
     expect(footerRows(setup)[0]).not.toMatch(/120\s*$/);
   }));
 
-test("keeps the last document when a file cannot be opened and survives resizing", () =>
+test("shows a binary screen in the reader for binary files, keeps the last document on missing files, and survives resizing", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "good.txt"), "readable content");
-    await writeFile(join(directory, "binary"), Buffer.from([0, 1, 2]));
+    await writeFile(join(directory, "binary.bin"), Buffer.from([0, 1, 2]));
     await using setup = await createTestRenderer({ width: 100, height: 20 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(join(directory, "good.txt"));
-    await app.open(join(directory, "binary"));
+    await app.open(join(directory, "binary.bin"));
+    await setup.renderOnce();
+    expect(setup.captureCharFrame()).toContain("Binary files are not supported.");
+    expect(setup.captureCharFrame()).toContain("binary.bin");
+    expect(setup.captureCharFrame()).toContain("3 B");
+    expect(setup.captureCharFrame()).not.toContain("readable content");
+    setup.resize(60, 10);
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("Binary files are not supported");
-    expect(setup.captureCharFrame()).toContain("readable content");
-    setup.resize(60, 10);
+    await app.open(join(directory, "good.txt"));
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("readable content");
     setup.mockInput.pressKey("q");
@@ -211,7 +216,9 @@ test.each([
     await app.open(path);
     await setup.renderOnce();
     const code = setup.renderer.root.findDescendantById("document");
+
     if (!(code instanceof CodeRenderable)) throw new Error("No source view mounted.");
+
     await code.highlightingDone;
     await setup.renderOnce();
     const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
@@ -240,14 +247,16 @@ test("renders Markdown by default and shows its source on m, without touching th
     expect(rendered).toContain("Heading");
     expect(rendered).not.toContain("# Heading");
     expect(rendered).not.toContain("**bold**");
-    expect(rendered).not.toContain("1  ");
+    expect(rendered).not.toMatch(/│\s+1\s+Heading/);
     expect(rendered).toContain("m source");
     expect(rendered).toContain("rendered");
 
     setup.mockInput.pressKey("m");
     await setup.renderOnce();
     const code = setup.renderer.root.findDescendantById("document");
+
     if (!(code instanceof CodeRenderable)) throw new Error("No source view mounted.");
+
     await code.highlightingDone;
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("1  # Heading");
@@ -258,7 +267,6 @@ test("renders Markdown by default and shows its source on m, without touching th
     await waitForFrame(setup, (frame) => !frame.includes("# Heading"), "the rendered view again");
     await waitForText(setup, "some bold text");
 
-    // Other files are never rendered, and offer no preview.
     await app.open(join(directory, "notes.txt"));
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("1  # not markdown");
@@ -280,7 +288,9 @@ test("highlights source, and resets highlighting and line numbers for plain and 
     setup.mockInput.pressKey("m");
     await setup.renderOnce();
     const code = setup.renderer.root.findDescendantById("document");
+
     if (!(code instanceof CodeRenderable)) throw new Error("No source view mounted.");
+
     await code.highlightingDone;
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain("1  # Heading");
@@ -294,7 +304,7 @@ test("highlights source, and resets highlighting and line numbers for plain and 
     await app.open(join(directory, "unknown.xyz"));
     await setup.renderOnce();
     expect(setup.captureCharFrame()).toContain('1  const plain = "untouched";');
-    const sourceSpans = setup.captureSpans().lines[2]?.spans ?? [];
+    const sourceSpans = setup.captureSpans().lines.flatMap((line) => line.spans);
     expect(
       sourceSpans.some(
         (span) => span.text.includes("const plain") && span.fg.toInts().slice(0, 3).join(",") === "212,216,222",
@@ -333,7 +343,9 @@ test("w toggles word wrap in either pane, keeping content inside the viewport", 
     await app.open(join(directory, "long.txt"));
     await setup.renderOnce();
     const viewer = setup.renderer.root.findDescendantById("viewer");
+
     if (!(viewer instanceof ScrollBoxRenderable)) throw new Error("No viewer mounted.");
+
     expect(setup.captureCharFrame()).not.toContain("word19");
 
     setup.mockInput.pressKey("w");
@@ -427,9 +439,9 @@ test("footer shows errors without losing the open file, and drops facts before t
   }));
 
 const accentInts = RGBA.fromHex(theme.accent).toInts().join(",");
-const transparentInts = RGBA.fromValues(0, 0, 0, 0).toInts().join(",");
+const borderInts = RGBA.fromHex(theme.border).toInts().join(",");
 
-test("the focused pane has an indigo left border, and nothing is dimmed", () =>
+test("the focused pane has an indigo border, the inactive pane a hairline border, and nothing is dimmed", () =>
   withDirectory(async (directory) => {
     await writeFile(join(directory, "alpha.txt"), "alpha content\n");
     await using setup = await createTestRenderer({ width: 90, height: 14 });
@@ -437,31 +449,34 @@ test("the focused pane has an indigo left border, and nothing is dimmed", () =>
     await app.open(directory);
     await setup.renderOnce();
     expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(accentInts);
-    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(transparentInts);
+    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(borderInts);
 
     setup.mockInput.pressKey("j");
     setup.mockInput.pressEnter();
     await waitForText(setup, "1  alpha content");
     await setup.renderOnce();
     expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(accentInts);
-    expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(transparentInts);
+    expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(borderInts);
 
     setup.mockInput.pressTab();
     await setup.renderOnce();
     expect(borderColorOf(setup.renderer.root, "browser-panel")).toBe(accentInts);
-    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(transparentInts);
+    expect(borderColorOf(setup.renderer.root, "viewer-panel")).toBe(borderInts);
     for (const id of ["browser-panel", "viewer-panel"]) {
       const panel = setup.renderer.root.findDescendantById(id);
+
       if (!(panel instanceof BoxRenderable)) throw new Error(`No ${id}.`);
+
       expect(panel.opacity).toBe(1);
     }
   }));
 
-/** Left-clicks the first sidebar row whose text contains `name`. */
 async function clickRow(setup: Awaited<ReturnType<typeof createTestRenderer>>, name: string): Promise<void> {
   const lines = setup.captureCharFrame().split("\n");
   const y = lines.findIndex((line) => line.slice(0, 40).includes(name));
+
   if (y < 0) throw new Error(`No sidebar row for ${name}.`);
+
   await setup.mockMouse.click(lines[y]!.indexOf(name) + 1, y);
 }
 
@@ -476,7 +491,6 @@ test("clicking a file from the reader opens it without flashing the pane borders
     await setup.renderOnce();
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
 
-    // Pulsing either border on the way (sidebar indigo, then the reader again) reads as a flash in a real terminal.
     const writes: string[] = [];
     for (const id of ["browser-panel", "viewer-panel"]) watchBorder(setup.renderer.root, id, writes);
     await clickRow(setup, "b.txt");
@@ -511,9 +525,9 @@ test("clicking folders keeps the sidebar focused, and a file that cannot open re
     setup.mockInput.pressTab();
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("viewer");
     await clickRow(setup, "zzz.bin");
-    await waitForText(setup, "Binary files are not supported");
+    await waitForText(setup, "Binary files are not supported.");
     expect(setup.renderer.currentFocusedRenderable?.id).toBe("browser");
-    expect(setup.captureCharFrame()).toContain("1  text");
+    expect(setup.captureCharFrame()).not.toContain("1  text");
   }));
 
 test("shows a picture in the reader with its size and format, and returns to text afterwards", () =>
@@ -530,7 +544,6 @@ test("shows a picture in the reader with its size and format, and returns to tex
     expect(frame).toContain("png");
     expect(frame).toContain("image");
     expect(frame).not.toContain("lines");
-    // The picture itself is drawn: some cell of the reader has the image's red as its colour.
     const reds = setup
       .captureSpans()
       .lines.flatMap((line) => line.spans)
@@ -540,7 +553,6 @@ test("shows a picture in the reader with its size and format, and returns to tex
       });
     expect(reds.length).toBeGreaterThan(0);
 
-    // A file with an image name that is not an image is refused, and the picture stays.
     await app.open(join(directory, "broken.png"));
     await waitForText(setup, "could not be read");
     expect(setup.captureCharFrame()).toContain("32×16");
@@ -559,7 +571,9 @@ test("space, Page Down and b page through the reader and back again", () =>
     await app.open(path);
     await setup.renderOnce();
     const viewer = setup.renderer.root.findDescendantById("viewer");
+
     if (!(viewer instanceof ScrollBoxRenderable)) throw new Error("No viewer mounted.");
+
     expect(viewer.scrollTop).toBe(0);
     setup.mockInput.pressKey(" ");
     await setup.renderOnce();
@@ -602,7 +616,9 @@ test("moving through files keeps working while the changes are read", () =>
     setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("j");
     const browser = setup.renderer.root.findDescendantById("browser");
+
     if (!(browser instanceof FileExplorer)) throw new Error("No file list mounted.");
+
     expect(browser.selected()?.name).toBe("b.txt");
     await waitForText(setup, "a changed");
     expect(setup.captureCharFrame()).not.toContain("Still loading");
