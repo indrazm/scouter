@@ -11,7 +11,6 @@ import { waitForFrame, withDirectory } from "./fixtures";
 const grammars = join(import.meta.dir, "..", "grammars");
 const PLAIN = "212,216,222";
 
-/** A file name, some source, and a word in it that a highlighter must colour. */
 const samples: [file: string, source: string, word: string][] = [
   ["data.json", '{"name": "scouter", "ok": true}\n', "true"],
   ["style.css", "a { color: red; }\n", "color"],

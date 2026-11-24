@@ -16,6 +16,5 @@ test("every occurrence is found, ignoring case, without overlapping", () => {
 test("nothing is marked for an empty query, or when lower case would shift the positions", () => {
   expect(matchRanges("text", "")).toEqual([]);
   expect(matchRanges("no match here", "needle")).toEqual([]);
-  // "İ" becomes two characters in lower case, so every later offset would be wrong.
   expect(matchRanges("İ needle", "needle")).toEqual([]);
 });

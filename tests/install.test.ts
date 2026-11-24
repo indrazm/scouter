@@ -23,7 +23,6 @@ async function run(
 ): Promise<Run> {
   const child = Bun.spawn(command, {
     cwd: options.cwd ?? root,
-    // Unless a test says otherwise, the installer's folders are throwaway ones, never the developer's real install.
     env: { ...process.env, SCOUTER_HOME: unusedHome, SCOUTER_BIN_DIR: unusedBin, ...options.env },
     stdin: options.stdin === undefined ? "ignore" : new Blob([options.stdin]),
     stdout: "pipe",
@@ -37,7 +36,6 @@ async function run(
   return { code, out, err };
 }
 
-/** A stand-in for the GitHub repository: this working tree, committed and tagged, in a temporary folder. */
 async function upstream(directory: string, tag: string): Promise<string> {
   const target = join(directory, "upstream");
   await mkdir(target, { recursive: true });
@@ -50,7 +48,6 @@ async function upstream(directory: string, tag: string): Promise<string> {
       await copyFile(join(root, file), join(target, file));
     }),
   );
-  // The stand-in starts at 0.1.0 whatever version this checkout is, so the upgrade below always has somewhere to go.
   const manifest = join(target, "package.json");
   await writeFile(manifest, (await readFile(manifest, "utf8")).replace(/"version": "[^"]+"/, '"version": "0.1.0"'));
   git(target, "init", "--quiet", "--initial-branch=main");
@@ -112,20 +109,17 @@ test(
   () =>
     withDirectory(async (directory) => {
       const source = await upstream(directory, "v0.1.0");
-      // A space in the path: everything the installer writes must survive it.
       const home = join(directory, "with space", "home");
       const bin = join(directory, "bin");
       const env = { SCOUTER_REPO: pathToFileURL(source).href, SCOUTER_HOME: home, SCOUTER_BIN_DIR: bin };
       const scouter = join(bin, "scouter");
 
-      // Piped, like `curl ... | bash`: there is no checkout, so it downloads the newest release tag.
       const install = await run(["bash"], { env, stdin: await readFile(installer, "utf8") });
       expect(install.err).toBe("");
       expect(install.out).toContain("Downloading Scouter (v0.1.0)");
       expect(install.out).toContain("Installed scouter 0.1.0");
       expect((await run([scouter, "--version"])).out).toBe("scouter 0.1.0\n");
 
-      // The folder being viewed must not be able to run code through Bun's own configuration.
       const hostile = join(directory, "hostile");
       await mkdir(hostile);
       await writeFile(join(hostile, "bunfig.toml"), 'preload = ["./evil.ts"]\n');
@@ -134,12 +128,10 @@ test(
       expect((await run([scouter, "--version"], { cwd: hostile })).out).toBe("scouter 0.1.0\n");
       expect(await Bun.file(join(hostile, "PWNED")).exists()).toBe(false);
 
-      // Nothing newer yet.
       const same = await run([scouter, "--upgrade"]);
       expect(same.code).toBe(0);
       expect(same.out).toContain("Already up to date: scouter 0.1.0");
 
-      // A new release appears; the installed command finds it and replaces itself.
       const manifest = join(source, "package.json");
       await writeFile(manifest, (await readFile(manifest, "utf8")).replace('"version": "0.1.0"', '"version": "0.1.1"'));
       git(source, "commit", "--quiet", "--all", "-m", "bump");
@@ -163,7 +155,6 @@ test(
   () =>
     withDirectory(async (directory) => {
       const bin = join(directory, "bin");
-      // Always point both folders at the temporary directory: the defaults are the developer's real install.
       const env = { SCOUTER_BIN_DIR: bin, SCOUTER_HOME: join(directory, "home") };
       const install = await run(["bash", installer], { env });
       expect(install.out).toContain(`Installing from this checkout: ${root}`);
@@ -176,7 +167,6 @@ test(
 
       await run(["bash", installer, "--uninstall"], { env });
       expect(await Bun.file(scouter).exists()).toBe(false);
-      // The checkout it linked to is never deleted.
       expect(await Bun.file(join(root, "src", "index.ts")).exists()).toBe(true);
     }),
   60_000,

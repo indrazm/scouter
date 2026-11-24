@@ -4,7 +4,6 @@ import { readDirectory, type DirectoryEntry } from "./files";
 import type { TextHit } from "./search";
 
 export interface TreeEntry extends DirectoryEntry {
-  /** Set on a row that stands for one matching line of a file, in the list of text search results. */
   match?: Pick<TextHit, "line" | "text" | "at" | "length">;
   depth: number;
   parentPath?: string;
@@ -12,7 +11,6 @@ export interface TreeEntry extends DirectoryEntry {
   children?: TreeEntry[];
 }
 
-/** Identity of a folder's listing, so a refresh can tell whether anything was added, removed or retyped. */
 function listing(children: TreeEntry[]): string {
   return children.map((child) => `${child.path}\0${child.kind}`).join("\n");
 }
@@ -29,36 +27,43 @@ export class FileTree {
     return this.root?.path;
   }
 
-  /** Every folder that is expanded, including ones hidden inside a collapsed parent. */
   expandedPaths(): string[] {
-    return [...this.nodes.values()].filter((entry) => entry.state === "expanded").map((entry) => entry.path);
+    const paths: string[] = [];
+    for (const entry of this.nodes.values()) {
+      if (entry.state === "expanded") paths.push(entry.path);
+    }
+    return paths;
   }
 
-  /** Re-reads an expanded folder, keeping the state of the entries that remain. Returns whether its listing changed. */
   async refresh(path: string): Promise<boolean> {
     const entry = this.nodes.get(path);
+
     if (!entry?.children || entry.state !== "expanded") return false;
+
     let entries: DirectoryEntry[];
     try {
       entries = await readDirectory(path);
     } catch {
-      // The folder may have just disappeared; its parent's refresh removes it.
       return false;
     }
-    // The folder may have been collapsed or removed while it was being read.
+
     if (this.nodes.get(path) !== entry || entry.state !== "expanded" || !entry.children) return false;
+
     const before = listing(entry.children);
     const previous = new Map(entry.children.map((child) => [child.path, child]));
     const kept = new Set<TreeEntry>();
     const children: TreeEntry[] = [];
     for (const fresh of entries) {
       const existing = previous.get(fresh.path);
+
       if (existing?.kind === fresh.kind) {
         kept.add(existing);
         children.push(existing);
         continue;
       }
+
       if (existing) this.forget(existing);
+
       const child: TreeEntry = { ...fresh, depth: entry.depth + 1, parentPath: path, state: "collapsed" };
       this.nodes.set(child.path, child);
       children.push(child);
@@ -68,14 +73,15 @@ export class FileTree {
     return listing(entry.children) !== before;
   }
 
-  /** False when `path` is outside the tree. */
   async expandTo(path: string): Promise<boolean> {
     if (!this.root) return false;
+
     const rest = relative(this.root.path, path);
+
     if (!rest || rest.startsWith("..") || isAbsolute(rest)) return false;
+
     let folder = this.root.path;
     for (const part of rest.split(sep).slice(0, -1)) {
-      // Each folder is listed by expanding its parent, so the next one exists by the time it is reached.
       // oxlint-disable-next-line no-await-in-loop
       await this.expand(folder);
       folder = join(folder, part);
@@ -93,14 +99,19 @@ export class FileTree {
 
   async expand(path: string): Promise<void> {
     const entry = this.nodes.get(path);
+
     if (!entry || entry.state === "expanded") return;
+
     if (entry.kind === "link") await this.rejectLinkLoop(entry);
+
     if (!entry.children) entry.children = this.addChildren(entry, await readDirectory(path));
+
     entry.state = "expanded";
   }
 
   collapse(path: string): void {
     const entry = this.nodes.get(path);
+
     if (entry) entry.state = "collapsed";
   }
 
@@ -108,6 +119,7 @@ export class FileTree {
     let entry = this.nodes.get(path);
     while (entry?.parentPath) {
       entry = this.nodes.get(entry.parentPath);
+
       if (entry) entry.state = "expanded";
     }
   }
@@ -116,9 +128,12 @@ export class FileTree {
     const rows: TreeEntry[] = [];
     const visit = (entry: TreeEntry): void => {
       rows.push(entry);
+
       if (entry.state === "expanded") entry.children?.forEach(visit);
     };
+
     if (this.root) visit(this.root);
+
     return rows;
   }
 
@@ -140,6 +155,7 @@ export class FileTree {
     const parents: string[] = [];
     for (let parent = entry.parentPath; parent; parent = this.nodes.get(parent)?.parentPath) parents.push(parent);
     const resolved = await Promise.all(parents.map((parent) => realpath(parent)));
+
     if (resolved.includes(target)) throw new Error("Cannot expand a symbolic-link loop.");
   }
 }

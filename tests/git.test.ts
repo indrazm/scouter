@@ -14,7 +14,9 @@ import { createRepository as repository, git, withDirectory } from "./fixtures";
 
 const byPath = (changes: Change[], path: string): Change => {
   const change = changes.find((candidate) => candidate.path === path);
+
   if (!change) throw new Error(`No change for ${path}.`);
+
   return change;
 };
 
@@ -137,7 +139,9 @@ test("strips terminal control sequences from patch text", () =>
     await writeFile(join(directory, "a.txt"), "safe \u001b[2Jwiped ‮evil\n");
     const repo = await openRepository(directory);
     const patch = await readPatch(repo, byPath((await listChanges(repo)).changes, "a.txt"));
+
     if (patch.kind !== "text") throw new Error("Expected a text patch.");
+
     expect(patch.text).not.toContain("\u001b");
     expect(patch.text).not.toContain("‮");
     expect(patch.text).toContain("wiped");
@@ -168,7 +172,6 @@ test("never writes to the repository and never runs programs configured by it", 
     git(directory, "config", "core.fsmonitor", script);
     git(directory, "config", "diff.test.textconv", script);
     await writeFile(join(directory, ".gitattributes"), "*.txt diff=test\n");
-    // Touching a file without changing it makes a plain `git status` refresh, and rewrite, the index.
     await utimes(join(directory, "a.txt"), new Date(Date.now() + 5000), new Date(Date.now() + 5000));
     await writeFile(join(directory, "b.txt"), "new\n");
     const before = await stat(join(directory, ".git", "index"));
@@ -236,7 +239,9 @@ test("reads every file's diff in one pass and matches each to its own file", () 
     expect(all.map((entry) => entry.change.path)).toEqual(changes.map((change) => change.path));
     const text = (path: string): string => {
       const patch = all.find((entry) => entry.change.path === path)?.patch;
+
       if (patch?.kind !== "text") throw new Error(`No text diff for ${path}.`);
+
       return patch.text;
     };
     expect(text("edited.txt")).toContain("+TWO edited");
@@ -247,13 +252,14 @@ test("reads every file's diff in one pass and matches each to its own file", () 
     expect(text("fresh.txt")).toContain("+untracked");
     const notice = (path: string): string => {
       const patch = all.find((entry) => entry.change.path === path)?.patch;
+
       if (patch?.kind !== "notice") throw new Error(`Expected a notice for ${path}.`);
+
       return patch.message;
     };
     expect(notice("image.bin")).toContain("Binary");
     expect(notice("mode.sh")).toContain("permissions");
     expect(notice("renamed.txt")).toContain("Renamed from moved.txt");
-    // The same text, file by file, is what the single-file view shows.
     await Promise.all(all.map(async (entry) => expect(entry.patch).toEqual(await readPatch(repo, entry.change))));
   }));
 
@@ -271,14 +277,11 @@ test("stops reading diffs past the size budget and says so for the files it skip
     expect(skipped.every((entry) => entry.patch.kind === "notice" && entry.patch.message.includes("Press a"))).toBe(
       true,
     );
-    // What is shown is whole files from the start of the list, never half of one.
     expect(all.slice(0, shown.length).every((entry) => entry.patch.kind === "text")).toBe(true);
   }));
 
 test("sees a same-size edit made in the same second the index was written", () =>
   withDirectory(async (directory) => {
-    // Git trusts a file whose size and modification time match the index, unless the entry is "racy": no older than
-    // the index file itself. The private index copy must keep the original's timestamp or that safeguard is lost.
     await repository(directory);
     git(directory, "config", "core.trustctime", "false");
     const past = new Date("2020-01-01T00:00:00Z");

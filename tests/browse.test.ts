@@ -72,7 +72,6 @@ test("changed files, folders holding them, and ignored entries are marked in the
     await waitForText(setup, "src/");
     await waitForFrame(setup, (frame) => /src\/\s+•/.test(frame), "the folder with a change to be marked");
 
-    // Rows are: the root, build/, src/, then the files. Open src/ and look at its changed file.
     setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("j");
     setup.mockInput.pressKey("l");

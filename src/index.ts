@@ -17,24 +17,32 @@ ${keyListText()}
 
 async function main(): Promise<void> {
   const args = Bun.argv.slice(2);
+
   if (args.includes("--help") || args.includes("-h")) {
     console.log(help);
     return;
   }
+
   if (args.includes("--upgrade")) {
     throw new Error(
       "--upgrade is for the installed command. Install Scouter with install.sh, then run: scouter --upgrade",
     );
   }
+
   if (args.includes("--version") || args.includes("-v")) {
     console.log(`scouter ${version}`);
     return;
   }
+
   if (args.length > 1) throw new Error("Expected one file or directory. Use --help for usage.");
+
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Run Scouter in an interactive terminal.");
+
   const path = resolve(args[0] ?? process.cwd());
   const metadata = await stat(path);
+
   if (!metadata.isFile() && !metadata.isDirectory()) throw new Error("Only files and directories can be opened.");
+
   const { createCliRenderer, RGBA } = await import("@opentui/core");
   const { ScouterApp } = await import("./app");
   const renderer = await createCliRenderer({

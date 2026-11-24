@@ -1,11 +1,9 @@
 interface BrowseWatcherOptions {
   pollMs: number;
   isDestroyed(): boolean;
-  /** Must not throw. */
   refresh(): Promise<void>;
 }
 
-/** Runs refreshes one after another, on request and on a timer, so a slow one never overlaps the next. */
 export class BrowseWatcher {
   private queue: Promise<void> = Promise.resolve();
   private timer?: ReturnType<typeof setTimeout>;
@@ -26,7 +24,6 @@ export class BrowseWatcher {
     this.timer.unref?.();
   }
 
-  /** Resolves once the refresh in progress, if any, has finished. */
   stop(): Promise<void> {
     clearTimeout(this.timer);
     return this.queue;

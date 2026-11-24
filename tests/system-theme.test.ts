@@ -3,7 +3,6 @@ import { EventEmitter } from "node:events";
 import { SystemThemeWatcher, type SystemTheme, type ThemeSource } from "../src/system-theme";
 import type { ThemeMode } from "../src/theme";
 
-/** A terminal whose answers the test hands out one at a time, or refuses to give at all. */
 class FakeTerminal implements ThemeSource {
   themeMode: ThemeMode | null = null;
   asked = 0;
@@ -31,9 +30,9 @@ class FakeTerminal implements ThemeSource {
     });
   }
 
-  /** Answers the oldest (or the newest) question not yet answered, waiting for one to be asked if there is none. */
   async answer(background: string | Error, which: "oldest" | "newest" = "oldest"): Promise<void> {
     if (this.waiting.length === 0) await new Promise<void>((resolve) => (this.onQuestion = resolve));
+
     (which === "oldest" ? this.waiting.shift() : this.waiting.pop())?.(background);
   }
 
@@ -42,7 +41,6 @@ class FakeTerminal implements ThemeSource {
   }
 }
 
-/** Lets everything that can run without waiting on a timer or the terminal run. */
 const settle = (): Promise<void> => new Promise((resolve) => setImmediate(resolve));
 
 function watch(terminal: FakeTerminal, pollMs = 5): { seen: SystemTheme[]; watcher: SystemThemeWatcher } {
@@ -78,8 +76,6 @@ test("the mode comes from how bright the background is, and only a different rea
 test("a slow answer that arrives after a newer one does not undo it", async () => {
   const terminal = new FakeTerminal();
   const { seen, watcher } = watch(terminal);
-  // The first question is still unanswered when the terminal announces a change; that second question is answered
-  // first, and the first, now out of date, is answered after it.
   terminal.announce("light");
   await settle();
   expect(terminal.asked).toBe(2);

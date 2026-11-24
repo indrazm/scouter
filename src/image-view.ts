@@ -8,7 +8,6 @@ export interface ImageDetails {
   format: string;
 }
 
-/** Reads a picture's size and format, or throws a plain message when it is not an image Scouter can decode. */
 export function describeImage(bytes: Uint8Array): ImageDetails {
   try {
     const { width, height, format } = imageInfo(bytes);
@@ -18,7 +17,6 @@ export function describeImage(bytes: Uint8Array): ImageDetails {
   }
 }
 
-/** The terminal's own graphics are used when it has them, else character blocks. */
 export class ImageView {
   private readonly image: ImageRenderable;
   private viewer?: ScrollBoxRenderable;
@@ -51,9 +49,9 @@ export class ImageView {
     this.image.source = undefined;
   }
 
-  /** The picture is as tall as the reader, so it never needs scrolling. */
   resize(): void {
     if (!this.viewer || !this.image.visible) return;
+
     this.viewer.contentOptions = { flexDirection: "column", width: "100%" };
     this.image.height = Math.max(1, this.viewer.viewport.height);
   }

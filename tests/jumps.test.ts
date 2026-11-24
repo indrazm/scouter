@@ -17,9 +17,9 @@ function footer(setup: TestRendererSetup): { status: string; hints: string } {
 const numbered = (count: number, replace: Record<number, string> = {}): string =>
   `${Array.from({ length: count }, (_, index) => replace[index + 1] ?? `line ${index + 1}`).join("\n")}\n`;
 
-/** Opens the file the finder names, from the file list or from the reader. */
 async function openByName(setup: TestRendererSetup, name: string, firstLine: string): Promise<void> {
   if (setup.renderer.currentFocusedRenderable?.id === "viewer") setup.mockInput.pressTab();
+
   setup.mockInput.pressKey("/");
   await setup.mockInput.typeText(name);
   await waitForText(setup, "1 match");
@@ -111,7 +111,6 @@ test("a search result is a jump: Ctrl+o returns to the file it was found from", 
     setup.mockInput.pressKey("o", { ctrl: true });
     await waitForText(setup, "1  plain line");
     setup.mockInput.pressKey("i", { meta: true });
-    // Matches are seeded when the file opens, so this checks the file is back rather than the exact line.
     await waitForFrame(setup, (frame) => frame.includes("60 lines") && !frame.includes("plain line"), "notes.txt");
   }));
 

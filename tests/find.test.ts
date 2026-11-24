@@ -67,7 +67,6 @@ test("the find prompt leaves out files git ignores", () =>
     await using setup = await createTestRenderer({ width: 90, height: 14 });
     await using app = new ScouterApp(setup.renderer);
     await app.open(directory);
-    // The git marks arrive once git has answered; the modified file's status letter shows that they have.
     await waitForFrame(setup, (frame) => /tracked\.txt\s+M/.test(frame), "the git marks");
     setup.mockInput.pressKey("/");
     await setup.mockInput.typeText("secret");

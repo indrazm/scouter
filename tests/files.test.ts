@@ -85,7 +85,6 @@ test("shows the first megabyte of a larger file, marked as truncated, without sp
   withDirectory(async (directory) => {
     const megabyte = 1024 * 1024;
     const path = join(directory, "large.txt");
-    // The second byte of "é" is the megabyte's last byte, so the cut has to fall before the whole character.
     await writeFile(path, `${"a".repeat(megabyte - 1)}é${"b".repeat(100)}\n`);
     const document = await readDocument(path);
     expect(document.truncated).toBe(true);

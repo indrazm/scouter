@@ -1,8 +1,36 @@
 {
   "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import"],
   "categories": {
     "correctness": "error",
     "suspicious": "error",
     "perf": "error"
-  }
+  },
+  "ignorePatterns": ["node_modules", "dist", "tooling"],
+  "jsPlugins": ["./tooling/oxlint/aven-plugin.mjs"],
+  "rules": {
+    "aven/no-comments": "error",
+    "aven/no-conditional-spread": "error",
+    "aven/no-atom-import": "error",
+    "aven/no-barrel-file": "error",
+    "aven/no-base-ui-outside-ui": "error",
+    "aven/no-native-primitives": "error",
+    "aven/padded-if": "error",
+    "aven/no-reduce-accumulator-copy": "error",
+    "aven/no-reflect-apply": "error",
+    "aven/no-reflect-get": "error",
+    "aven/no-array-filter-map": "error",
+    "aven/no-chained-type-assertions": "error",
+    "aven/no-unknown-type-aliases": "error",
+    "aven/no-module-mocking": "error",
+    "oxc/no-accumulating-spread": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx"],
+      "rules": {
+        "aven/no-chained-type-assertions": "off"
+      }
+    }
+  ]
 }

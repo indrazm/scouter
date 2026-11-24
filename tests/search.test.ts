@@ -26,7 +26,6 @@ test("a query matches paths containing every word, ignoring case, with file name
   ];
   const { matches, total } = matchEntries(entries, "SEARCH");
   expect(total).toBe(3);
-  // "Search.ts" and "guide-to-search.md" name the query; "index.ts" only has it in a folder, so it comes last.
   expect(matches.map((match) => match.relative)).toEqual([
     "src/Search.ts",
     "docs/guide-to-search.md",
@@ -55,14 +54,15 @@ test("indexing skips what it is told to and stops at the limit", () =>
     expect(limited.entries).toHaveLength(2);
   }));
 
-/** Runs a text search to the end and returns its last report. */
 async function finalSearch(entries: IndexedEntry[], query: string): Promise<TextProgress> {
   let last: TextProgress | undefined;
   await searchText(entries, query, (progress) => {
     last = progress;
     return true;
   });
+
   if (!last?.done) throw new Error("The search never finished.");
+
   return last;
 }
 

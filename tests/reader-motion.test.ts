@@ -8,11 +8,12 @@ import { waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 function reader(setup: { renderer: { root: { findDescendantById(id: string): unknown } } }): ScrollBoxRenderable {
   const viewer = setup.renderer.root.findDescendantById("viewer");
+
   if (!(viewer instanceof ScrollBoxRenderable)) throw new Error("No viewer mounted.");
+
   return viewer;
 }
 
-/** Paragraphs of nine lines, each followed by a blank line: blank lines are at zero-based 9, 19, 29 … */
 const paragraphs = Array.from({ length: 80 }, (_, index) =>
   (index + 1) % 10 === 0 ? "" : `content-${index + 1}`,
 ).join("\n");

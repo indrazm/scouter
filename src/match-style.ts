@@ -1,26 +1,21 @@
 import type { OnHighlightCallback } from "@opentui/core";
 import { theme } from "./theme";
 
-/** The syntax group the words that match a search are put in; `CodeView` registers its style under this name. */
 export const MATCH_GROUP = "search.match";
 export function matchStyle(): { fg: string; bg: string; bold: boolean } {
   return { fg: theme.matchFg, bg: theme.matchBg, bold: true };
 }
 
-/**
- * A file with no grammar has no filetype, and the renderer then skips highlighting altogether, including ours. Giving
- * it this one, which no grammar answers to, lets the matches be marked in plain text too.
- */
 export const PLAIN_FILETYPE = "scouter-plain";
 
-/** One file with this many matches would make a list of marks too long to be worth drawing. */
 const MAX_MARKS = 2000;
 
 export function matchRanges(text: string, needle: string): [number, number][] {
   const lower = text.toLowerCase();
   const wanted = needle.toLowerCase();
-  // A few characters change length in lower case, which would put every later mark in the wrong place.
+
   if (!wanted || lower.length !== text.length) return [];
+
   const ranges: [number, number][] = [];
   for (
     let at = lower.indexOf(wanted);
@@ -34,6 +29,7 @@ export function matchRanges(text: string, needle: string): [number, number][] {
 
 export function markMatches(needle: string | undefined): OnHighlightCallback | undefined {
   if (!needle) return undefined;
+
   return (highlights, { content }) => [
     ...highlights,
     ...matchRanges(content, needle).map(([start, end]): [number, number, string] => [start, end, MATCH_GROUP]),
