@@ -2,7 +2,7 @@
 
 A read-only terminal file viewer with built-in git changes. Browse a folder, read any file with syntax highlighting (Markdown shows rendered, images show as pictures), and press `d` to see every change in your working tree on one page.
 
-![Scouter showing a project folder and its welcome screen](docs/screenshot.png)
+![Scouter browsing a repository and reading a TypeScript file](docs/screenshot-reader.webp)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/indrazm/scouter/main/install.sh | bash
@@ -18,6 +18,10 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 - **Find anything.** Press `/` on the file list to find a file by name, then `Tab` to search the text inside every file, with the reader previewing the highlighted result. On an open file, `/` searches that file. Every match is highlighted.
 - **Read-only and safe.** It can't edit anything, never touches your git repository, and never runs code from the folder you open.
 - **Quiet and fast.** No config. Vim-style keys, mouse optional. The active pane is framed in indigo, and the colours follow your terminal between light and dark.
+
+![Scouter showing git changes and inline diffs](docs/screenshot-diff.webp)
+
+![Scouter showing a project folder and its welcome screen](docs/screenshot-welcome.webp)
 
 ## Keys
 

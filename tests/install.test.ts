@@ -39,9 +39,10 @@ async function run(
 async function upstream(directory: string, tag: string): Promise<string> {
   const target = join(directory, "upstream");
   await mkdir(target, { recursive: true });
+  const deleted = new Set((await run(["git", "ls-files", "--deleted"])).out.split("\n").filter(Boolean));
   const files = (await run(["git", "ls-files", "--cached", "--others", "--exclude-standard"])).out
     .split("\n")
-    .filter(Boolean);
+    .filter((file) => Boolean(file) && !deleted.has(file));
   await Promise.all(
     files.map(async (file) => {
       await mkdir(dirname(join(target, file)), { recursive: true });
