@@ -133,7 +133,12 @@ export class FileExplorer extends ScrollBoxRenderable {
 
   private readonly onActivate: () => void;
 
-  show(entries: TreeEntry[], selectedPath: string, style: (entry: TreeEntry) => RowStyle = plainRow): void {
+  show(
+    entries: TreeEntry[],
+    selectedPath: string,
+    style: (entry: TreeEntry) => RowStyle = plainRow,
+    scrollIntoView = true,
+  ): void {
     const reuse = Math.min(this.rows.length, entries.length);
     for (let index = 0; index < reuse; index += 1) {
       const row = this.rows[index]!;
@@ -159,7 +164,7 @@ export class FileExplorer extends ScrollBoxRenderable {
     this.rows.forEach((row, index) => this.paintRow(row, index));
     const selectedRow = this.rows[this.selectedIndex];
 
-    if (selectedRow) this.scrollChildIntoView(selectedRow.box);
+    if (scrollIntoView && selectedRow) this.scrollChildIntoView(selectedRow.box);
   }
 
   selectPath(path: string): boolean {

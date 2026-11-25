@@ -369,9 +369,9 @@ export class ScouterApp {
     this.focusBrowser();
   }
 
-  private renderTree(selectedPath: string): void {
+  private renderTree(selectedPath: string, scrollIntoView = true): void {
     const entries = this.tree.rows();
-    this.browser.show(entries, selectedPath, (entry) => this.styleOf(entry));
+    this.browser.show(entries, selectedPath, (entry) => this.styleOf(entry), scrollIntoView);
     this.updateSidebarHeader();
   }
 
@@ -603,9 +603,10 @@ export class ScouterApp {
 
       if (this.renderer.isDestroyed || this.mode !== "browse") return;
 
-      if ((marks || folders.some(Boolean)) && !this.finder.active) {
-        this.renderTree(this.browser.selected()?.path ?? root);
-      }
+      if (this.finder.active) return;
+
+      if (folders.some(Boolean)) this.renderTree(this.browser.selected()?.path ?? root, false);
+      else if (marks) this.browser.repaint((entry) => this.styleOf(entry));
     } catch {}
   }
 

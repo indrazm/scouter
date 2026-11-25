@@ -6,11 +6,13 @@ import type { Change, Repository } from "./types";
 import type { RowStyle } from "../explorer/types";
 import { theme } from "../ui/theme";
 
+const EMPTY_SIGNATURE = ["", "", ""].join("\u0001");
+
 export class GitMarks {
   private readonly changes = new Map<string, Pick<Change, "path" | "kind">>();
   private readonly folders = new Set<string>();
   private readonly ignored = new Set<string>();
-  private signature = "";
+  private signature = EMPTY_SIGNATURE;
   private source?: { root: string; real: string; repository?: Repository };
 
   async refresh(root: string): Promise<boolean> {

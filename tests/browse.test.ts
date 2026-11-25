@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
+import { ScrollBoxRenderable } from "@opentui/core";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 import { ScouterApp } from "../src/app/app";
 import { openRepository, listIgnored } from "../src/diff/git";
+import { GitMarks } from "../src/diff/marks";
 import { palettes } from "../src/ui/theme";
 import { channels, createRepository, textColorOf, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
@@ -101,4 +103,41 @@ test("git's ignored list names folders once and includes ignored files", () =>
     await writeFile(join(directory, "build", "out.txt"), "output\n");
     await writeFile(join(directory, "debug.log"), "noise\n");
     expect((await listIgnored(await openRepository(directory))).toSorted()).toEqual(["build/", "debug.log"]);
+  }));
+
+test("refreshing git marks on a non-git folder reports no change", () =>
+  withDirectory(async (directory) => {
+    const marks = new GitMarks();
+    try {
+      expect(await marks.refresh(directory)).toBe(false);
+    } finally {
+      await marks.close();
+    }
+  }));
+
+test("background browse refresh keeps the sidebar's wheel scroll position", () =>
+  withDirectory(async (directory) => {
+    await Promise.all(
+      Array.from({ length: 60 }, (_, index) =>
+        writeFile(join(directory, `file${String(index).padStart(2, "0")}.txt`), `line ${index}\n`),
+      ),
+    );
+    await using setup = await createTestRenderer({ width: 120, height: 16 });
+    await using app = new ScouterApp(setup.renderer, FAST_POLL);
+    await app.open(directory);
+    await setup.renderOnce();
+    const explorer = setup.renderer.root.findDescendantById("browser");
+
+    if (!(explorer instanceof ScrollBoxRenderable)) throw new Error("No explorer mounted.");
+
+    await setup.mockMouse.scroll(explorer.x + 7, explorer.y + 3, "down");
+    await setup.mockMouse.scroll(explorer.x + 7, explorer.y + 3, "down");
+    await setup.mockMouse.scroll(explorer.x + 7, explorer.y + 3, "down");
+    await setup.renderOnce();
+    const scrolled = explorer.scrollTop;
+    expect(scrolled).toBeGreaterThan(0);
+
+    await writeFile(join(directory, "file05b.txt"), "added\n");
+    await waitForText(setup, "file05b.txt");
+    expect(explorer.scrollTop).toBe(scrolled);
   }));
