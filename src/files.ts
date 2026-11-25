@@ -1,10 +1,13 @@
 import { constants, type Stats } from "node:fs";
-import { open, readdir } from "node:fs/promises";
+import { open, readdir, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const BINARY_PROBE_BYTES = 8192;
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
+const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const nameCollator = new Intl.Collator();
 
 export interface DirectoryEntry {
   name: string;
@@ -47,7 +50,7 @@ export function displayLabel(text: string): string {
 
 const NOISE = new Set([".git", ".hg", ".svn", ".DS_Store", ".AppleDouble", "Thumbs.db", "desktop.ini"]);
 
-export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
+export async function readDirectoryRaw(path: string): Promise<DirectoryEntry[]> {
   const entries: DirectoryEntry[] = [];
   for (const entry of await readdir(path, { withFileTypes: true })) {
     if (NOISE.has(entry.name)) continue;
@@ -58,9 +61,14 @@ export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
       kind: entry.isDirectory() ? "directory" : entry.isFile() ? "file" : entry.isSymbolicLink() ? "link" : "other",
     });
   }
+  return entries;
+}
+
+export async function readDirectory(path: string): Promise<DirectoryEntry[]> {
+  const entries = await readDirectoryRaw(path);
   entries.sort((left, right) => {
     const directoryOrder = Number(right.kind === "directory") - Number(left.kind === "directory");
-    return directoryOrder || left.name.localeCompare(right.name);
+    return directoryOrder || nameCollator.compare(left.name, right.name);
   });
   return entries;
 }
@@ -79,25 +87,43 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function countLogicalLines(text: string): number {
+  if (text === "") return 0;
+
+  const end = text.endsWith("\n") ? text.length - 1 : text.length;
+  let count = 1;
+  for (let at = text.indexOf("\n"); at >= 0 && at < end; at = text.indexOf("\n", at + 1)) count += 1;
+  return count;
+}
+
+export function formatFileStamp(metadata: Pick<Stats, "mtimeMs" | "size">): string {
+  return `${metadata.mtimeMs}:${metadata.size}`;
+}
+
+export async function fileStamp(path: string): Promise<string> {
+  return formatFileStamp(await stat(path));
+}
+
 export async function readDocument(path: string): Promise<Document> {
+  return (await readDocumentWithStamp(path)).document;
+}
+
+export async function readDocumentWithStamp(path: string): Promise<{ document: Document; stamp: string }> {
   const { file, metadata } = await openRegularFile(path, "Only regular text files can be viewed.");
   try {
-    const loaded = await readBounded(file);
+    const loaded = await readBounded(file, metadata.size);
     const truncated = loaded.length > MAX_FILE_BYTES;
     const bytes = truncated ? loaded.subarray(0, characterBoundary(loaded, MAX_FILE_BYTES)) : loaded;
-
-    if (bytes.includes(0)) throw new BinaryFileError(metadata.size);
-
     const text = displayText(decodeText(bytes)).replace(/\t/g, "    ");
     const document: Document = {
       path,
       text,
-      lineCount: text === "" ? 0 : text.replace(/\n$/, "").split("\n").length,
+      lineCount: countLogicalLines(text),
     };
 
     if (truncated) document.truncated = true;
 
-    return document;
+    return { document, stamp: formatFileStamp(metadata) };
   } finally {
     await file.close();
   }
@@ -140,14 +166,27 @@ export async function readImage(path: string): Promise<ImageFile> {
   }
 }
 
-async function readBounded(file: OpenFile): Promise<Buffer> {
-  const bytes = Buffer.alloc(MAX_FILE_BYTES + 1);
+async function readBounded(file: OpenFile, size: number): Promise<Buffer> {
+  const limit = MAX_FILE_BYTES + 1;
+  const target = Math.min(Math.max(size, 0), MAX_FILE_BYTES) + 1;
+  let bytes = Buffer.allocUnsafe(Math.min(target, BINARY_PROBE_BYTES));
   let length = 0;
-  while (length < bytes.length) {
+  while (length < limit) {
+    if (length === bytes.length) {
+      const nextSize = bytes.length < target ? target : limit;
+      const grown = Buffer.allocUnsafe(nextSize);
+      bytes.copy(grown, 0, 0, length);
+      bytes = grown;
+    }
+
     // oxlint-disable-next-line no-await-in-loop
     const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
 
     if (bytesRead === 0) break;
+
+    const checkEnd = Math.min(length + bytesRead, MAX_FILE_BYTES);
+
+    if (checkEnd > length && bytes.subarray(length, checkEnd).includes(0)) throw new BinaryFileError(size);
 
     length += bytesRead;
   }
@@ -156,7 +195,7 @@ async function readBounded(file: OpenFile): Promise<Buffer> {
 
 function decodeText(bytes: Buffer): string {
   try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+    return utf8Decoder.decode(bytes);
   } catch {
     throw new Error("Only UTF-8 text files are supported.");
   }

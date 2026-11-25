@@ -1,7 +1,13 @@
+const MAX_POLL_MS = 30_000;
+
+export interface RefreshOptions {
+  marksOnly?: boolean;
+}
+
 interface BrowseWatcherOptions {
   pollMs: number;
   isDestroyed(): boolean;
-  refresh(): Promise<void>;
+  refresh(options?: RefreshOptions): Promise<void>;
 }
 
 export class BrowseWatcher {
@@ -10,17 +16,30 @@ export class BrowseWatcher {
 
   constructor(private readonly options: BrowseWatcherOptions) {}
 
-  refresh(): Promise<void> {
-    this.queue = this.queue.then(() => this.options.refresh());
+  refresh(options?: RefreshOptions): Promise<void> {
+    this.queue = this.queue.then(() => this.options.refresh(options));
     return this.queue;
   }
 
-  start(): void {
+  start(delay = this.options.pollMs): void {
     this.timer = setTimeout(() => {
-      void this.refresh().then(() => {
-        if (!this.options.isDestroyed()) this.start();
+      let elapsed = 0;
+      const run = async (): Promise<void> => {
+        const started = performance.now();
+        try {
+          await this.options.refresh();
+        } finally {
+          elapsed = performance.now() - started;
+        }
+      };
+      this.queue = this.queue.then(run);
+      void this.queue.then(() => {
+        if (!this.options.isDestroyed()) {
+          const next = Math.min(Math.max(MAX_POLL_MS, this.options.pollMs), Math.max(this.options.pollMs, elapsed * 3));
+          this.start(next);
+        }
       });
-    }, this.options.pollMs);
+    }, delay);
     this.timer.unref?.();
   }
 

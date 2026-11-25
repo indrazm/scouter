@@ -3,8 +3,10 @@ import { chmod, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/pro
 import { join } from "node:path";
 import {
   GitError,
+  changesStamp,
   closeRepository,
   listChanges,
+  listMarks,
   openRepository,
   readAllPatches,
   readPatch,
@@ -299,4 +301,91 @@ test("sees a same-size edit made in the same second the index was written", () =
     expect(changes.map((change) => [change.path, change.kind])).toEqual([["a.txt", "modified"]]);
     const patch = await readPatch(repo, changes[0]!);
     expect(patch.kind === "text" && patch.text).toContain("+two");
+  }));
+
+test("listMarks returns changed and ignored paths in one pass and changesStamp detects in-place edits", () =>
+  withDirectory(async (directory) => {
+    await repository(directory, { ".gitignore": "*.log\n", "a.txt": "alpha\n" });
+    await writeFile(join(directory, "a.txt"), "bravo\n");
+    await writeFile(join(directory, "loose.txt"), "new\n");
+    await writeFile(join(directory, "debug.log"), "ignored\n");
+    const repo = await openRepository(directory);
+
+    const marks = await listMarks(repo);
+    expect(marks.changes).toEqual([
+      { path: "a.txt", kind: "modified" },
+      { path: "loose.txt", kind: "untracked" },
+    ]);
+    expect(marks.ignored).toEqual(["debug.log"]);
+
+    const { changes } = await listChanges(repo);
+    const before = await changesStamp(repo, changes);
+    expect(await changesStamp(repo, changes)).toBe(before);
+
+    await writeFile(join(directory, "a.txt"), "gamma\n");
+    const after = await changesStamp(repo, changes);
+    expect(after).not.toBe(before);
+    await closeRepository(repo);
+  }));
+
+test("syncIndex recovers when the private index copy is rewritten or removed", () =>
+  withDirectory(async (directory) => {
+    await repository(directory);
+    git(directory, "config", "core.trustctime", "false");
+    const past = new Date("2020-01-01T00:00:00Z");
+    const aPath = join(directory, "a.txt");
+    const bPath = join(directory, "b.txt");
+    await writeFile(aPath, "one\n");
+    await writeFile(bPath, "one\n");
+    await utimes(aPath, past, past);
+    await utimes(bPath, past, past);
+    git(directory, "add", "a.txt", "b.txt");
+    git(directory, "commit", "--quiet", "-m", "initial");
+    await utimes(join(directory, ".git", "index"), past, past);
+
+    const repo = await openRepository(directory);
+    expect(await listChanges(repo)).toEqual({ changes: [], truncated: false });
+
+    await utimes(bPath, new Date(), new Date());
+    expect(await listChanges(repo)).toEqual({ changes: [], truncated: false });
+
+    await writeFile(aPath, "two\n");
+    await utimes(aPath, past, past);
+    expect((await listChanges(repo)).changes.map((change) => [change.path, change.kind])).toEqual([
+      ["a.txt", "modified"],
+    ]);
+
+    await rm(repo.indexFile, { force: true });
+    expect((await listChanges(repo)).changes.map((change) => [change.path, change.kind])).toEqual([
+      ["a.txt", "modified"],
+    ]);
+    await closeRepository(repo);
+  }));
+
+test("changesStamp detects symlink retargeting for broken and equivalent targets", () =>
+  withDirectory(async (directory) => {
+    await repository(directory, { "target.txt": "body\n" });
+    const link = join(directory, "link");
+    await symlink("missing-one", link);
+    git(directory, "add", "link");
+    git(directory, "commit", "--quiet", "-m", "symlink");
+
+    await rm(link);
+    await symlink("missing-two", link);
+    const repo = await openRepository(directory);
+    const { changes } = await listChanges(repo);
+    const brokenBefore = await changesStamp(repo, changes);
+    await rm(link);
+    await symlink("missing-three", link);
+    const brokenAfter = await changesStamp(repo, changes);
+    expect(brokenAfter).not.toBe(brokenBefore);
+
+    await rm(link);
+    await symlink("./target.txt", link);
+    const validBefore = await changesStamp(repo, changes);
+    await rm(link);
+    await symlink("././target.txt", link);
+    const validAfter = await changesStamp(repo, changes);
+    expect(validAfter).not.toBe(validBefore);
+    await closeRepository(repo);
   }));

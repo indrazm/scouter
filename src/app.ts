@@ -8,10 +8,10 @@ import {
 } from "@opentui/core";
 import { stat } from "node:fs/promises";
 import { basename, dirname, posix, resolve } from "node:path";
-import { BrowseWatcher } from "./browse-watcher";
+import { BrowseWatcher, type RefreshOptions } from "./browse-watcher";
 import { copiedSummary, copyToClipboard, type ClipboardWriter } from "./clipboard";
 import { CodeView, languageFor } from "./code-view";
-import { DiffScreen, MIN_SPLIT_COLUMNS } from "./diff-screen";
+import { DiffScreen, MIN_SPLIT_COLUMNS, type DiffState } from "./diff-screen";
 import { DocumentSearch } from "./document-search";
 import { FileExplorer, type RowStyle } from "./explorer";
 import { FileFinder } from "./file-finder";
@@ -32,9 +32,11 @@ import {
   BinaryFileError,
   describeError,
   displayLabel,
+  fileStamp,
   formatBytes,
   isImagePath,
   readDocument,
+  readDocumentWithStamp,
   readImage,
   type Document,
   type ImageFile,
@@ -64,11 +66,6 @@ type Shown =
       stamp?: string;
     };
 
-async function fileStamp(path: string): Promise<string> {
-  const info = await stat(path);
-  return `${info.mtimeMs}:${info.size}`;
-}
-
 export class ScouterApp {
   private readonly tree = new FileTree();
   private loading?: "open" | "diff";
@@ -90,7 +87,8 @@ export class ScouterApp {
   private readonly binaryMeta: TextRenderable;
   private readonly binaryHint: TextRenderable;
   private readonly layout: BoxRenderable;
-  private help: BoxRenderable;
+  private help?: BoxRenderable;
+  private helpBackground: string = theme.fallbackBackground;
   private readonly diffScreen: DiffScreen;
   private readonly finder: FileFinder;
   private readonly search: DocumentSearch;
@@ -104,6 +102,7 @@ export class ScouterApp {
   private paneBeforeDiff: "list" | "reader" = "list";
   private focusPane?: "list" | "reader";
   private shown: Shown = { kind: "none" };
+  private blankLines?: { text: string; lines: number[] };
   private wrap = false;
   private zPending = false;
   private copyNoticeTimer?: ReturnType<typeof setTimeout>;
@@ -245,7 +244,7 @@ export class ScouterApp {
     this.watcher = new BrowseWatcher({
       pollMs: options.browsePollMs ?? BROWSE_POLL_MS,
       isDestroyed: () => renderer.isDestroyed,
-      refresh: () => this.refreshBrowse(),
+      refresh: (refreshOptions) => this.refreshBrowse(refreshOptions),
     });
     this.browserPanel.add(this.browserHeader.root);
     this.browserPanel.add(this.finder.bar);
@@ -264,9 +263,6 @@ export class ScouterApp {
     panes.add(this.viewerPanel);
     layout.add(panes);
     layout.add(this.footer.root);
-    this.help = createHelp(renderer, theme.fallbackBackground);
-    this.help.visible = false;
-    layout.add(this.help);
     renderer.root.add(layout);
     renderer.keyInput.on("keypress", this.onKeyPress);
     renderer.on("focused_renderable", this.updateFocus);
@@ -328,7 +324,21 @@ export class ScouterApp {
     this.viewerPanel.add(this.welcome, 1);
   }
 
+  private ensureHelp(): BoxRenderable {
+    if (!this.help) {
+      this.help = createHelp(this.renderer, this.helpBackground);
+      this.help.visible = false;
+      this.layout.add(this.help);
+    }
+
+    return this.help;
+  }
+
   private rebuildHelp(background: string): void {
+    this.helpBackground = background;
+
+    if (!this.help) return;
+
     const visible = this.help.visible;
     this.help.destroyRecursively();
     this.help = createHelp(this.renderer, background);
@@ -343,7 +353,7 @@ export class ScouterApp {
   private async show(path: string, beforeOpen?: () => void, top = 0): Promise<void> {
     if (this.renderer.isDestroyed) return;
 
-    await this.runLoading(
+    const opened = await this.runLoading(
       async () => {
         this.viewerHeader.setNotice(undefined);
         this.footer.setMessage("Loading…");
@@ -354,7 +364,8 @@ export class ScouterApp {
       },
       () => this.focusBrowser(),
     );
-    void this.watcher.refresh();
+
+    if (opened) void this.watcher.refresh({ marksOnly: true });
   }
 
   private here(): Jump | undefined {
@@ -430,9 +441,8 @@ export class ScouterApp {
       return;
     }
 
-    const stamp = await fileStamp(path);
     try {
-      const document = await readDocument(path);
+      const { document, stamp } = await readDocumentWithStamp(path);
 
       if (await this.reveal(path)) this.showDocument(document, stamp);
     } catch (error) {
@@ -448,6 +458,8 @@ export class ScouterApp {
 
   private async reveal(path: string): Promise<boolean> {
     if (this.renderer.isDestroyed) return false;
+
+    if (this.tree.has(path) && !this.finder.active && this.browser.selectPath(path)) return true;
 
     if (!this.tree.has(path) && !(await this.tree.expandTo(path))) await this.openDirectory(dirname(path));
 
@@ -478,11 +490,11 @@ export class ScouterApp {
     this.updateSidebarHeader();
   }
 
-  private updateSidebarHeader(): void {
+  private updateSidebarHeader(diffState?: DiffState): void {
     this.browserHeader.root.visible = !this.finder.active;
 
     if (this.mode === "diff") {
-      const state = this.diffScreen.state();
+      const state = diffState ?? this.diffScreen.state();
       const count = `${state.files}${state.truncated ? "+" : ""}`;
       this.browserHeader.setTitle("Changes");
       this.browserHeader.setBadges([{ text: count, kind: "quiet" }]);
@@ -500,25 +512,29 @@ export class ScouterApp {
   }
 
   private showImage(file: ImageFile, details: ImageDetails): void {
-    this.codeView.hide();
-    this.search.clear();
-    this.shown = { kind: "image", title: displayLabel(basename(file.path)), path: file.path };
-    this.revealReader();
-    this.imageView.show(file);
-    this.footer.setLocation(file.path);
-    this.footer.setDocument({ lines: 0, language: details.format, image: details });
-    this.finishShowing();
+    this.footer.batch(() => {
+      this.codeView.hide();
+      this.search.clear();
+      this.shown = { kind: "image", title: displayLabel(basename(file.path)), path: file.path };
+      this.revealReader();
+      this.imageView.show(file);
+      this.footer.setLocation(file.path);
+      this.footer.setDocument({ lines: 0, language: details.format, image: details });
+      this.finishShowing();
+    });
   }
 
   private showDocument(document: Document, stamp: string): void {
-    this.imageView.hide();
-    const language = this.codeView.show(document);
-    this.shown = { kind: "text", document, stamp, title: displayLabel(basename(document.path)) };
-    this.revealReader();
-    this.footer.setLocation(document.path);
-    this.setDocumentInfo(document, language);
-    this.search.refresh();
-    this.finishShowing();
+    this.footer.batch(() => {
+      this.imageView.hide();
+      const language = this.codeView.show(document);
+      this.shown = { kind: "text", document, stamp, title: displayLabel(basename(document.path)) };
+      this.revealReader();
+      this.footer.setLocation(document.path);
+      this.setDocumentInfo(document, language);
+      this.search.refresh();
+      this.finishShowing();
+    });
   }
 
   private showBinary(path: string, size: number): void {
@@ -615,7 +631,8 @@ export class ScouterApp {
   }
 
   private updateChrome(): void {
-    this.updateSidebarHeader();
+    const diffState = this.mode === "diff" ? this.diffScreen.state() : undefined;
+    this.updateSidebarHeader(diffState);
 
     if (this.previewPath !== undefined) {
       const { title, parent } = this.titleParts(this.previewPath);
@@ -637,7 +654,7 @@ export class ScouterApp {
       return;
     }
 
-    const state = this.diffScreen.state();
+    const state = diffState!;
 
     if (state.selected) {
       const folder = posix.dirname(state.selected.path);
@@ -649,7 +666,7 @@ export class ScouterApp {
       this.viewerHeader.setTitle("Changes");
     }
 
-    this.updateViewerBadges();
+    this.updateViewerBadges(state);
     this.footer.setDiff({
       location: state.selected?.path ?? state.repository,
       files: state.files,
@@ -739,11 +756,13 @@ export class ScouterApp {
     this.binaryView.visible = false;
     this.diffScreen.list.visible = true;
     this.diffScreen.body.visible = true;
-    this.footer.setMode("diff");
-    this.footer.clearMessage();
-    this.updateChrome();
-    this.diffScreen.list.focus();
-    this.updateFocus();
+    this.footer.batch(() => {
+      this.footer.setMode("diff");
+      this.footer.clearMessage();
+      this.updateChrome();
+      this.diffScreen.list.focus();
+      this.updateFocus();
+    });
     this.diffScreen.watch();
   }
 
@@ -755,27 +774,34 @@ export class ScouterApp {
     this.welcome.visible = this.shown.kind === "none";
     this.binaryView.visible = this.isBinary;
     this.viewer.visible = this.hasDocument;
-    this.footer.setMode("browse");
-    this.updateChrome();
-    this.updatePosition();
+    this.footer.batch(() => {
+      this.footer.setMode("browse");
+      this.updateChrome();
+      this.updatePosition();
 
-    if (this.paneBeforeDiff === "reader" && this.hasDocument) this.viewer.focus();
-    else this.browser.focus();
+      if (this.paneBeforeDiff === "reader" && this.hasDocument) this.viewer.focus();
+      else this.browser.focus();
 
-    this.updateFocus();
-    void this.diffScreen.close();
+      this.updateFocus();
+    });
+    this.diffScreen.leave();
     void this.watcher.refresh();
   }
 
-  private async refreshBrowse(): Promise<void> {
+  private async refreshBrowse(options?: RefreshOptions): Promise<void> {
     const root = this.tree.rootPath;
 
     if (this.renderer.isDestroyed || this.mode !== "browse" || this.loading === "open" || !root) return;
 
+    const marksOnly = options?.marksOnly ?? false;
+
     try {
-      const folders = await Promise.all(this.tree.expandedPaths().map((path) => this.tree.refresh(path)));
+      const folders = marksOnly
+        ? []
+        : await Promise.all(this.tree.expandedPaths().map((path) => this.tree.refresh(path)));
       const marks = await this.marks.refresh(root);
-      await this.refreshDocument();
+
+      if (!marksOnly) await this.refreshDocument();
 
       if (this.renderer.isDestroyed || this.mode !== "browse") return;
 
@@ -847,14 +873,14 @@ export class ScouterApp {
     if (!(await this.runLoading(change)) || this.renderer.isDestroyed) return;
 
     this.renderTree(selectedPath);
-    void this.watcher.refresh();
+    void this.watcher.refresh({ marksOnly: true });
   }
 
-  private updateViewerBadges(): void {
+  private updateViewerBadges(diffState?: DiffState): void {
     const badges: HeaderBadge[] = [];
 
     if (this.mode === "diff") {
-      const state = this.diffScreen.state();
+      const state = diffState ?? this.diffScreen.state();
 
       if (state.selected) badges.push({ text: state.selected.kind, kind: "quiet" });
 
@@ -932,7 +958,7 @@ export class ScouterApp {
       return;
     }
 
-    if (entry.parentPath) this.renderTree(entry.parentPath);
+    if (entry.parentPath && !this.browser.selectPath(entry.parentPath)) this.renderTree(entry.parentPath);
   }
 
   private focusBrowser(): void {
@@ -981,7 +1007,7 @@ export class ScouterApp {
       return;
     }
 
-    if (this.help.visible) {
+    if (this.help?.visible) {
       key.preventDefault();
       this.help.visible = false;
       return;
@@ -1010,7 +1036,7 @@ export class ScouterApp {
 
     if (key.name === "escape") return () => this.escape();
 
-    if (key.sequence === "?" && isPlain(key)) return () => void (this.help.visible = true);
+    if (key.sequence === "?" && isPlain(key)) return () => void (this.ensureHelp().visible = true);
 
     if (key.ctrl && !key.meta && (key.name === "left" || key.name === "right")) {
       return () => this.sidebar.nudge(key.name === "left" ? "left" : "right");
@@ -1255,6 +1281,36 @@ export class ScouterApp {
     return true;
   }
 
+  private blankLinesOf(text: string): number[] {
+    if (this.blankLines?.text === text) return this.blankLines.lines;
+
+    const lines: number[] = [];
+    let index = 0;
+    let start = 0;
+    while (start <= text.length) {
+      const end = text.indexOf("\n", start);
+      const stop = end < 0 ? text.length : end;
+      let blank = true;
+      for (let cursor = start; cursor < stop; cursor += 1) {
+        const code = text.charCodeAt(cursor);
+
+        if (code !== 32 && code !== 9 && code !== 13) {
+          blank = false;
+          break;
+        }
+      }
+
+      if (blank) lines.push(index);
+
+      if (end < 0) break;
+
+      start = end + 1;
+      index += 1;
+    }
+    this.blankLines = { text, lines };
+    return lines;
+  }
+
   private moveByParagraph(direction: 1 | -1): void {
     if (!this.document) return;
 
@@ -1263,13 +1319,10 @@ export class ScouterApp {
       return;
     }
 
-    const lines = this.document.text.split("\n");
+    const blanks = this.blankLinesOf(this.document.text);
     const top = Math.floor(this.viewer.scrollTop);
-    const target =
-      direction > 0
-        ? lines.findIndex((line, index) => index > top && line.trim() === "")
-        : lines.findLastIndex((line, index) => index < top && line.trim() === "");
-    this.viewer.scrollTo(target < 0 ? (direction > 0 ? Infinity : 0) : target);
+    const target = direction > 0 ? blanks.find((line) => line > top) : blanks.findLast((line) => line < top);
+    this.viewer.scrollTo(target === undefined ? (direction > 0 ? Infinity : 0) : target);
     this.updatePosition();
   }
 

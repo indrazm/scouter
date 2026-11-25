@@ -40,6 +40,7 @@ interface Finding {
   truncated: boolean;
   returnTo?: string;
   text?: TextProgress;
+  shownText?: { scan: number; hits: number };
   scan: number;
   timer?: ReturnType<typeof setTimeout>;
 }
@@ -188,6 +189,7 @@ export class FileFinder {
     finding.scan += 1;
     clearTimeout(finding.timer);
     finding.text = undefined;
+    finding.shownText = undefined;
 
     if (finding.mode !== "text" || !finding.entries || finding.query.length < MIN_TEXT_QUERY) return;
 
@@ -255,6 +257,7 @@ export class FileFinder {
 
     if (finding.query.length < MIN_TEXT_QUERY || !progress) {
       const short = finding.query.length < MIN_TEXT_QUERY;
+      finding.shownText = undefined;
       this.say(finding.query, short ? `type ${MIN_TEXT_QUERY}+ characters` : "searching…");
       this.host.browser.show([], "");
 
@@ -263,11 +266,16 @@ export class FileFinder {
       return;
     }
 
+    const unchangedHits = finding.shownText?.scan === finding.scan && finding.shownText.hits === progress.hits.length;
+    this.say(finding.query, textStatus(progress));
+
+    if (unchangedHits) return;
+
+    finding.shownText = { scan: finding.scan, hits: progress.hits.length };
     const rows = progress.hits.map(toHitEntry);
     const kept = this.host.browser.selected()?.path;
     const selected = rows.some((row) => row.path === kept) ? kept : rows[0]?.path;
     this.host.browser.show(rows, selected ?? "", (row) => this.host.styleOf(row));
-    this.say(finding.query, textStatus(progress));
     this.host.preview(this.host.browser.selected(), finding.query);
   }
 

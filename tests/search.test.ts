@@ -135,3 +135,20 @@ test("a long line is cut around the match so the match stays visible", () =>
     expect(hit?.text.length).toBeLessThanOrEqual(300);
     expect(hit?.text.slice(hit.at, hit.at + hit.length)).toBe("needle");
   }));
+
+test("text search reports one hit per line, handles Unicode case-folding length changes, and skips image extensions", () =>
+  withDirectory(async (directory) => {
+    await writeFile(join(directory, "multi.txt"), "needle and needle\nsecond\nneedle\n");
+    await writeFile(join(directory, "unicode.txt"), "İsland needle here\n");
+    await writeFile(join(directory, "photo.png"), "needle inside fake png\n");
+    const result = await finalSearch((await indexTree(directory, () => false)).entries, "needle");
+    expect(result.scanned).toBe(3);
+    expect(result.total).toBe(3);
+    expect(result.hits.map((hit) => [hit.relative, hit.line]).toSorted()).toEqual([
+      ["multi.txt", 1],
+      ["multi.txt", 3],
+      ["unicode.txt", 1],
+    ]);
+    const unicodeHit = result.hits.find((hit) => hit.relative === "unicode.txt");
+    expect(unicodeHit?.text.slice(unicodeHit.at, unicodeHit.at + unicodeHit.length)).toBe("needle");
+  }));

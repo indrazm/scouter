@@ -112,3 +112,26 @@ test("follows a file symlink for read-only viewing", () =>
     await symlink(join(directory, "target.txt"), path);
     expect((await readDocument(path)).text).toBe("linked text");
   }));
+
+test("rejects binary files whether NUL bytes appear early or past the initial probe, while allowing NUL bytes past 1 MiB", () =>
+  withDirectory(async (directory) => {
+    const earlyPath = join(directory, "early.bin");
+    const early = Buffer.alloc(32_768, 65);
+    early[10] = 0;
+    await writeFile(earlyPath, early);
+    await expect(readDocument(earlyPath)).rejects.toThrow("Binary files");
+
+    const latePath = join(directory, "late.bin");
+    const late = Buffer.alloc(32_768, 65);
+    late[20_000] = 0;
+    await writeFile(latePath, late);
+    await expect(readDocument(latePath)).rejects.toThrow("Binary files");
+
+    const tailPath = join(directory, "tail.txt");
+    const tail = Buffer.alloc(1024 * 1024 + 16, 65);
+    tail[1024 * 1024 + 4] = 0;
+    await writeFile(tailPath, tail);
+    const document = await readDocument(tailPath);
+    expect(document.truncated).toBe(true);
+    expect(document.text.length).toBe(1024 * 1024);
+  }));

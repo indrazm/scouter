@@ -24,6 +24,7 @@ export interface RowStyle {
 }
 
 interface ExplorerRow {
+  index: number;
   entry: TreeEntry;
   box: BoxRenderable;
   text: TextRenderable;
@@ -137,54 +138,84 @@ export class FileExplorer extends ScrollBoxRenderable {
   private readonly onActivate: () => void;
 
   show(entries: TreeEntry[], selectedPath: string, style: (entry: TreeEntry) => RowStyle = plainRow): void {
-    for (const row of this.rows) row.box.destroyRecursively();
-    this.rows = entries.map((entry, index) => this.createRow(entry, index, style(entry)));
-    this.selectedIndex = -1;
-    this.selectIndex(
-      Math.max(
-        0,
-        entries.findIndex((entry) => entry.path === selectedPath),
-      ),
-    );
+    const reuse = Math.min(this.rows.length, entries.length);
+    for (let index = 0; index < reuse; index += 1) {
+      const row = this.rows[index]!;
+      const entry = entries[index]!;
+      row.index = index;
+      row.entry = entry;
+      row.style = style(entry);
+    }
+    for (let index = reuse; index < entries.length; index += 1) {
+      const entry = entries[index]!;
+      this.rows.push(this.createRow(entry, index, style(entry)));
+    }
+    for (let index = entries.length; index < this.rows.length; index += 1) {
+      this.rows[index]!.box.destroyRecursively();
+    }
+    this.rows.length = entries.length;
+    this.selectedIndex = entries.length
+      ? Math.max(
+          0,
+          entries.findIndex((entry) => entry.path === selectedPath),
+        )
+      : -1;
     this.rows.forEach((row, index) => this.paintRow(row, index));
+    const selectedRow = this.rows[this.selectedIndex];
+
+    if (selectedRow) this.scrollChildIntoView(selectedRow.box);
+  }
+
+  selectPath(path: string): boolean {
+    const index = this.rows.findIndex((row) => row.entry.path === path);
+
+    if (index < 0) return false;
+
+    this.selectIndex(index);
+    return true;
   }
 
   private createRow(entry: TreeEntry, index: number, style: RowStyle): ExplorerRow {
-    const box = new BoxRenderable(this.ctx, {
-      id: `tree-row-${index}`,
-      height: 1,
-      width: "100%",
-      flexShrink: 0,
-      flexDirection: "row",
-      onMouseDown: (event) => {
-        if (event.button !== MouseButton.LEFT) return;
+    const row: ExplorerRow = {
+      index,
+      entry,
+      style,
+      box: new BoxRenderable(this.ctx, {
+        id: `tree-row-${index}`,
+        height: 1,
+        width: "100%",
+        flexShrink: 0,
+        flexDirection: "row",
+        onMouseDown: (event) => {
+          if (event.button !== MouseButton.LEFT) return;
 
-        event.preventDefault();
-        this.selectIndex(index);
-        this.onActivate();
-      },
-    });
-    const text = new TextRenderable(this.ctx, {
-      height: 1,
-      flexGrow: 1,
-      flexShrink: 1,
-      minWidth: 0,
-      wrapMode: "none",
-      selectable: false,
-      bg: "transparent",
-    });
-    const mark = new TextRenderable(this.ctx, {
-      height: 1,
-      flexShrink: 0,
-      marginLeft: 1,
-      wrapMode: "none",
-      selectable: false,
-      bg: "transparent",
-    });
-    box.add(text);
-    box.add(mark);
-    this.add(box);
-    return { entry, box, text, mark, style };
+          event.preventDefault();
+          this.selectIndex(row.index);
+          this.onActivate();
+        },
+      }),
+      text: new TextRenderable(this.ctx, {
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+        minWidth: 0,
+        wrapMode: "none",
+        selectable: false,
+        bg: "transparent",
+      }),
+      mark: new TextRenderable(this.ctx, {
+        height: 1,
+        flexShrink: 0,
+        marginLeft: 1,
+        wrapMode: "none",
+        selectable: false,
+        bg: "transparent",
+      }),
+    };
+    row.box.add(row.text);
+    row.box.add(row.mark);
+    this.add(row.box);
+    return row;
   }
 
   repaint(style: (entry: TreeEntry) => RowStyle): void {

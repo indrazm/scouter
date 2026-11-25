@@ -1,5 +1,5 @@
 import { rmSync } from "node:fs";
-import { copyFile, mkdtemp, rm, stat, utimes } from "node:fs/promises";
+import { copyFile, lstat, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { displayText, readDocument } from "./files";
@@ -8,7 +8,12 @@ const LIST_LIMIT_BYTES = 8 * 1024 * 1024;
 const PATCH_LIMIT_BYTES = 1024 * 1024;
 const ALL_LIMIT_BYTES = 4 * 1024 * 1024;
 const GIT_TIMEOUT_MS = 15_000;
+const RACY_INDEX_WINDOW_MS = 2000;
+const UNTRACKED_BATCH = 16;
+const STAMP_BATCH = 32;
 export const MAX_CHANGES = 1000;
+
+const utf8Decoder = new TextDecoder();
 
 export class GitError extends Error {}
 
@@ -31,12 +36,29 @@ interface LineCounts {
   binary: boolean;
 }
 
+interface IndexStamp {
+  sourceIno: bigint;
+  sourceSize: bigint;
+  sourceMtimeNs: bigint;
+  sourceCtimeNs: bigint;
+  copyIno: bigint;
+  copySize: bigint;
+  copyMtimeNs: bigint;
+}
+
 export interface Repository {
   root: string;
   base: string;
+  headOid: string;
   indexFile: string;
   gitIndex: string;
+  indexStamp?: IndexStamp;
   queue: Promise<unknown>;
+}
+
+export interface MarksSnapshot {
+  changes: Pick<Change, "path" | "kind">[];
+  ignored: string[];
 }
 
 export interface ChangeSet {
@@ -111,7 +133,7 @@ async function run(
     throw new GitError(reason ? displayText(reason) : `git exited with status ${code}.`);
   }
 
-  return { text: new TextDecoder().decode(bytes), truncated };
+  return { text: utf8Decoder.decode(bytes), truncated };
 }
 
 async function readCapped(
@@ -157,19 +179,23 @@ export async function openRepository(directory: string): Promise<Repository> {
 
   if (!root) throw new GitError("Not a git repository.");
 
-  const base = await resolveBase(root);
+  const { base, headOid } = await resolveBase(root);
   const gitIndex = (await run(root, ["rev-parse", "--path-format=absolute", "--git-path", "index"])).text.trim();
   const copyDirectory = await mkdtemp(join(tmpdir(), "scouter-index-"));
   openCopies.add(copyDirectory);
-  return { root, base, indexFile: join(copyDirectory, "index"), gitIndex, queue: Promise.resolve() };
+  return { root, base, headOid, indexFile: join(copyDirectory, "index"), gitIndex, queue: Promise.resolve() };
 }
 
-async function resolveBase(root: string): Promise<string> {
-  const head = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(
-    () => true,
-    () => false,
+async function resolveBase(root: string): Promise<{ base: string; headOid: string }> {
+  const headOid = await run(root, ["rev-parse", "--verify", "--quiet", "HEAD"]).then(
+    (output) => output.text.trim(),
+    () => "",
   );
-  return head ? "HEAD" : (await run(root, ["hash-object", "-t", "tree", "/dev/null"])).text.trim();
+
+  if (headOid) return { base: "HEAD", headOid };
+
+  const base = (await run(root, ["hash-object", "-t", "tree", "/dev/null"])).text.trim();
+  return { base, headOid: "" };
 }
 
 function exclusive<T>(repository: Repository, task: () => Promise<T>): Promise<T> {
@@ -189,10 +215,44 @@ export async function closeRepository(repository: Repository): Promise<void> {
 
 async function syncIndex(repository: Repository): Promise<void> {
   try {
-    const { atime, mtime } = await stat(repository.gitIndex);
+    const info = await stat(repository.gitIndex, { bigint: true });
+    const previous = repository.indexStamp;
+    const mtimeMs = Number(info.mtimeNs / 1_000_000n);
+
+    if (
+      previous &&
+      previous.sourceIno === info.ino &&
+      previous.sourceSize === info.size &&
+      previous.sourceMtimeNs === info.mtimeNs &&
+      previous.sourceCtimeNs === info.ctimeNs &&
+      Date.now() - mtimeMs > RACY_INDEX_WINDOW_MS
+    ) {
+      const copy = await stat(repository.indexFile, { bigint: true }).catch(() => undefined);
+
+      if (
+        copy &&
+        copy.ino === previous.copyIno &&
+        copy.size === previous.copySize &&
+        copy.mtimeNs === previous.copyMtimeNs
+      ) {
+        return;
+      }
+    }
+
     await copyFile(repository.gitIndex, repository.indexFile);
-    await utimes(repository.indexFile, atime, mtime);
+    await utimes(repository.indexFile, Number(info.atimeNs) / 1e9, Number(info.mtimeNs) / 1e9);
+    const copy = await stat(repository.indexFile, { bigint: true });
+    repository.indexStamp = {
+      sourceIno: info.ino,
+      sourceSize: info.size,
+      sourceMtimeNs: info.mtimeNs,
+      sourceCtimeNs: info.ctimeNs,
+      copyIno: copy.ino,
+      copySize: copy.size,
+      copyMtimeNs: copy.mtimeNs,
+    };
   } catch {
+    repository.indexStamp = undefined;
     await rm(repository.indexFile, { force: true });
   }
 }
@@ -202,7 +262,9 @@ export function listChanges(repository: Repository): Promise<ChangeSet> {
 }
 
 async function readChanges(repository: Repository): Promise<ChangeSet> {
-  repository.base = await resolveBase(repository.root);
+  const { base, headOid } = await resolveBase(repository.root);
+  repository.base = base;
+  repository.headOid = headOid;
   await syncIndex(repository);
   const indexFile = repository.indexFile;
   const [statuses, numbers, untracked, staged, unstaged] = await Promise.all([
@@ -233,6 +295,59 @@ async function readChanges(repository: Repository): Promise<ChangeSet> {
   return { changes: changes.slice(0, MAX_CHANGES), truncated };
 }
 
+export function listMarks(repository: Repository): Promise<MarksSnapshot> {
+  return exclusive(repository, async () => {
+    const { base, headOid } = await resolveBase(repository.root);
+    repository.base = base;
+    repository.headOid = headOid;
+    await syncIndex(repository);
+    const indexFile = repository.indexFile;
+    const [statuses, untracked, ignored] = await Promise.all([
+      run(repository.root, ["diff", repository.base, "--name-status", "-z", ...diffOptions], { indexFile }),
+      run(repository.root, ["ls-files", "--others", "--exclude-standard", "-z"], { indexFile }),
+      run(repository.root, ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"], {
+        indexFile,
+      }),
+    ]);
+    const emptyCounts = new Map<string, LineCounts>();
+    const changes: Pick<Change, "path" | "kind">[] = [
+      ...parseNameStatus(statuses.text, emptyCounts).map(({ path, kind }) => ({ path, kind })),
+      ...splitZ(untracked.text).map((path): Pick<Change, "path" | "kind"> => ({ path, kind: "untracked" })),
+    ];
+    changes.sort((left, right) => (left.path < right.path ? -1 : left.path > right.path ? 1 : 0));
+    return { changes: changes.slice(0, MAX_CHANGES), ignored: splitZ(ignored.text) };
+  });
+}
+
+async function pathStamp(path: string, followSymlinks: boolean): Promise<string> {
+  try {
+    const info = await (followSymlinks ? stat(path, { bigint: true }) : lstat(path, { bigint: true }));
+    return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  } catch {
+    return "missing";
+  }
+}
+
+export async function changesStamp(repository: Repository, changes: Change[]): Promise<string> {
+  const index = await pathStamp(repository.gitIndex, true);
+  const parts: string[] = [repository.headOid, repository.base, index];
+  for (let start = 0; start < changes.length; start += STAMP_BATCH) {
+    const batch = changes.slice(start, start + STAMP_BATCH);
+    // oxlint-disable-next-line no-await-in-loop
+    const stamps = await Promise.all(
+      batch.map((change) =>
+        change.kind === "deleted"
+          ? Promise.resolve("deleted")
+          : pathStamp(join(repository.root, change.path), change.kind === "untracked"),
+      ),
+    );
+    for (let indexInBatch = 0; indexInBatch < batch.length; indexInBatch += 1) {
+      parts.push(`${batch[indexInBatch]!.path}\0${stamps[indexInBatch]!}`);
+    }
+  }
+  return parts.join("\n");
+}
+
 export function listIgnored(repository: Repository): Promise<string[]> {
   return exclusive(repository, async () => {
     await syncIndex(repository);
@@ -248,10 +363,9 @@ export function listIgnored(repository: Repository): Promise<string[]> {
 export async function readPatch(repository: Repository, change: Change, contextLines = 3): Promise<Patch> {
   if (change.binary) return binaryNotice;
 
-  const text =
-    change.kind === "untracked"
-      ? await untrackedPatch(repository, change)
-      : await trackedPatch(repository, change, contextLines);
+  if (change.kind === "untracked") return untrackedPatch(repository, change);
+
+  const text = await trackedPatch(repository, change, contextLines);
   return typeof text === "string" ? toPatch(change, text) : text;
 }
 
@@ -299,22 +413,33 @@ export async function readAllPatches(
   }
 
   let budget = ALL_LIMIT_BYTES;
+  const untrackedPatches = new Map<string, Patch>();
+  const untrackedChanges = changes.filter((change) => change.kind === "untracked" && !change.binary);
+  for (let start = 0; start < untrackedChanges.length && budget > 0; start += UNTRACKED_BATCH) {
+    const batch = untrackedChanges.slice(start, start + UNTRACKED_BATCH);
+    // oxlint-disable-next-line no-await-in-loop
+    const built = await Promise.all(batch.map((change) => untrackedPatch(repository, change)));
+    for (let index = 0; index < batch.length; index += 1) {
+      const change = batch[index]!;
+      const patch = built[index]!;
+
+      if (budget <= 0) {
+        untrackedPatches.set(change.path, notShown);
+        continue;
+      }
+
+      if (patch.kind === "text") budget -= patch.text.length;
+
+      untrackedPatches.set(change.path, patch);
+    }
+  }
+
   const result: FilePatch[] = [];
   for (const change of changes) {
     result.push({
       change,
       // oxlint-disable-next-line no-await-in-loop
-      patch: await patchFor(
-        repository,
-        change,
-        chunks,
-        cut,
-        contextLines,
-        () => budget,
-        (used) => {
-          budget -= used;
-        },
-      ),
+      patch: await patchFor(repository, change, chunks, untrackedPatches, cut, contextLines),
     });
   }
   return result;
@@ -324,23 +449,13 @@ async function patchFor(
   repository: Repository,
   change: Change,
   chunks: Map<string, string>,
+  untrackedPatches: Map<string, Patch>,
   cut: boolean,
   contextLines: number,
-  budget: () => number,
-  spend: (bytes: number) => void,
 ): Promise<Patch> {
   if (change.binary) return binaryNotice;
 
-  if (change.kind === "untracked") {
-    if (budget() <= 0) return notShown;
-
-    const raw = await untrackedPatch(repository, change);
-
-    if (typeof raw !== "string") return raw;
-
-    spend(raw.length);
-    return toPatch(change, raw);
-  }
+  if (change.kind === "untracked") return untrackedPatches.get(change.path) ?? notShown;
 
   const chunk = chunks.get(change.path);
 
@@ -399,7 +514,7 @@ async function trackedPatch(repository: Repository, change: Change, contextLines
   return output.text;
 }
 
-async function untrackedPatch(repository: Repository, change: Change): Promise<string | Patch> {
+async function untrackedPatch(repository: Repository, change: Change): Promise<Patch> {
   let document;
   try {
     document = await readDocument(`${repository.root}/${change.path}`);
@@ -412,16 +527,21 @@ async function untrackedPatch(repository: Repository, change: Change): Promise<s
 
   if (document.lineCount === 0) return { kind: "notice", message: "New empty file." };
 
+  const safePath = displayText(change.path).replace(/\t/g, "    ");
   const lines = document.text.replace(/\n$/, "").split("\n");
-  return [
-    `diff --git a/${change.path} b/${change.path}`,
+  const text = [
+    `diff --git a/${safePath} b/${safePath}`,
     "new file mode 100644",
     "--- /dev/null",
-    `+++ b/${change.path}`,
+    `+++ b/${safePath}`,
     `@@ -0,0 +1,${lines.length} @@`,
     ...lines.map((line) => `+${line}`),
     "",
   ].join("\n");
+
+  if (text.length > PATCH_LIMIT_BYTES) return tooLarge;
+
+  return { kind: "text", text, hunks: 1, added: lines.length, removed: 0 };
 }
 
 function emptyMessage(change: Change): string {

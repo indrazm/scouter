@@ -153,7 +153,12 @@ export class DocumentSearch {
 
     if (!needle) return [];
 
-    return this.lowerLines().flatMap((line, index) => (line.includes(needle) ? [index] : []));
+    const lines = this.lowerLines();
+    const matches: number[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      if (lines[index]!.includes(needle)) matches.push(index);
+    }
+    return matches;
   }
 
   private lowerLines(): string[] {

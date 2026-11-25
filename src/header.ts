@@ -39,12 +39,23 @@ export class PaneHeader {
   }
 
   setTitle(title: string, parent?: string): void {
+    if (title === this.titleText && parent === this.parentText) return;
+
     this.titleText = title;
     this.parentText = parent;
     this.render();
   }
 
   setBadges(badges: HeaderBadge[]): void {
+    if (
+      badges.length === this.badgeList.length &&
+      badges.every(
+        (badge, index) => badge.text === this.badgeList[index]?.text && badge.kind === this.badgeList[index]?.kind,
+      )
+    ) {
+      return;
+    }
+
     this.badgeList = badges;
     this.render();
   }

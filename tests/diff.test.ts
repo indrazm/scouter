@@ -610,3 +610,44 @@ test("c collapses and expands a file diff, and x toggles expanded diff context",
     await waitForFrame(setup, (frame) => !frame.includes("line 10"), "normal context again");
     expect(headerRow(setup)).not.toContain("wide context");
   }));
+
+test("updates a staged marker on poll without changing file contents", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "a.txt": "one\n", "b.txt": "two\n" });
+    await writeFile(join(directory, "a.txt"), "one changed\n");
+    await writeFile(join(directory, "b.txt"), "two changed\n");
+    await using setup = await createTestRenderer({ width: 100, height: 16 });
+    await using app = new ScouterApp(setup.renderer, FAST_POLL);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "▾ M ○ a.txt");
+    expect(setup.captureCharFrame()).toMatch(/M ○ +a\.txt/);
+
+    git(directory, "add", "a.txt");
+    await waitForText(setup, "▾ M ● a.txt");
+    expect(setup.captureCharFrame()).toMatch(/M ● +a\.txt/);
+    expect(setup.captureCharFrame()).toContain("one changed");
+    expect(setup.captureCharFrame()).toContain("two changed");
+  }));
+
+test("toggling scope on a single changed file keeps the diff header active bar in sync", () =>
+  withDirectory(async (directory) => {
+    await createRepository(directory, { "only.txt": "before\n" });
+    await writeFile(join(directory, "only.txt"), "after\n");
+    await using setup = await createTestRenderer({ width: 100, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(directory);
+    await setup.renderOnce();
+    setup.mockInput.pressKey("d");
+    await waitForText(setup, "▎ ▾ M ○ only.txt");
+
+    setup.mockInput.pressKey("a");
+    await waitForText(setup, "one file");
+    await waitForFrame(setup, (frame) => !frame.includes("▎ ▾ M ○ only.txt"), "active bar to clear in one-file mode");
+    expect(setup.captureCharFrame()).toContain("▾ M ○ only.txt");
+
+    setup.mockInput.pressKey("a");
+    await waitForText(setup, "all files");
+    await waitForText(setup, "▎ ▾ M ○ only.txt");
+  }));

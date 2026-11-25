@@ -9,6 +9,7 @@ import { theme } from "../src/theme";
 import {
   borderColorOf,
   createRepository,
+  markedWords,
   solidPng,
   waitForFrame,
   waitForText,
@@ -653,4 +654,30 @@ test("opening a file waits until the changes have been read", () =>
     setup.mockInput.pressEnter();
     await waitForText(setup, "Still loading");
     await waitForText(setup, "CHANGES");
+  }));
+
+test("dismissing a search while previewing Markdown clears source match highlights", () =>
+  withDirectory(async (directory) => {
+    const path = join(directory, "notes.md");
+    await writeFile(path, "# Heading\n\nneedle in markdown\n");
+    await using setup = await createTestRenderer({ width: 90, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(path);
+    await waitForText(setup, "needle in markdown");
+
+    setup.mockInput.pressKey("m");
+    await waitForText(setup, "1  # Heading");
+    setup.mockInput.pressKey("/");
+    await setup.mockInput.typeText("needle");
+    setup.mockInput.pressEscape();
+    await waitForFrame(setup, () => markedWords(setup).length === 1, "match highlight in source");
+
+    setup.mockInput.pressKey("m");
+    await waitForFrame(setup, (frame) => !frame.includes("1  # Heading"), "rendered preview");
+    setup.mockInput.pressEscape();
+    await waitForFrame(setup, (frame) => !frame.includes("/needle"), "search dismissed");
+
+    setup.mockInput.pressKey("m");
+    await waitForText(setup, "1  # Heading");
+    await waitForFrame(setup, () => markedWords(setup).length === 0, "match highlight cleared in source");
   }));

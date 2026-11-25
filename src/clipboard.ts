@@ -2,6 +2,8 @@ import type { CliRenderer } from "@opentui/core";
 
 export type ClipboardWriter = (text: string) => Promise<boolean> | boolean;
 
+const utf8Encoder = new TextEncoder();
+
 function hostCommand(): string[] | undefined {
   if (process.platform === "darwin") return Bun.which("pbcopy") ? ["pbcopy"] : undefined;
 
@@ -26,7 +28,7 @@ async function writeHostClipboard(text: string): Promise<boolean> {
 
   try {
     const child = Bun.spawn(command, {
-      stdin: new TextEncoder().encode(text),
+      stdin: utf8Encoder.encode(text),
       stdout: "ignore",
       stderr: "ignore",
     });

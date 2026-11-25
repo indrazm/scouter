@@ -1,28 +1,24 @@
 import { realpath } from "node:fs/promises";
 import { posix, relative } from "node:path";
 import { statusOf } from "./changes";
-import { closeRepository, listChanges, listIgnored, openRepository, type Change, type Repository } from "./git";
+import { closeRepository, listMarks, openRepository, type Change, type Repository } from "./git";
 import type { RowStyle } from "./explorer";
 import { theme } from "./theme";
 
 export class GitMarks {
-  private readonly changes = new Map<string, Change>();
+  private readonly changes = new Map<string, Pick<Change, "path" | "kind">>();
   private readonly folders = new Set<string>();
   private readonly ignored = new Set<string>();
   private signature = "";
-  private source?: { root: string; repository?: Repository };
+  private source?: { root: string; real: string; repository?: Repository };
 
   async refresh(root: string): Promise<boolean> {
-    const repository = await this.repositoryFor(root);
+    const source = await this.sourceFor(root);
 
-    if (!repository) return this.update("", [], []);
+    if (!source.repository) return this.update("", [], []);
 
-    const [{ changes }, ignored, real] = await Promise.all([
-      listChanges(repository),
-      listIgnored(repository),
-      realpath(root),
-    ]);
-    return this.update(relative(repository.root, real), changes, ignored);
+    const { changes, ignored } = await listMarks(source.repository);
+    return this.update(relative(source.repository.root, source.real), changes, ignored);
   }
 
   async close(): Promise<void> {
@@ -32,23 +28,26 @@ export class GitMarks {
     if (repository) await closeRepository(repository);
   }
 
-  private async repositoryFor(root: string): Promise<Repository | undefined> {
+  private async sourceFor(root: string): Promise<{ root: string; real: string; repository?: Repository }> {
     if (this.source?.root !== root) {
       const previous = this.source?.repository;
-      const repository = await openRepository(root).catch(() => undefined);
+      const [repository, real] = await Promise.all([
+        openRepository(root).catch(() => undefined),
+        realpath(root).catch(() => root),
+      ]);
 
       if (previous) await closeRepository(previous);
 
-      this.source = { root, repository };
+      this.source = { root, real, repository };
     }
 
-    return this.source.repository;
+    return this.source;
   }
 
-  private update(within: string, changes: Change[], ignored: string[]): boolean {
+  private update(within: string, changes: Pick<Change, "path" | "kind">[], ignored: string[]): boolean {
     const next = [
       within,
-      changes.map((change) => [change.path, change.kind, change.staged, change.unstaged].join("\0")).join("\n"),
+      changes.map((change) => `${change.path}\0${change.kind}`).join("\n"),
       ignored.join("\n"),
     ].join("\u0001");
 
@@ -85,6 +84,8 @@ export class GitMarks {
   }
 
   isIgnored(path: string): boolean {
+    if (!this.ignored.size) return false;
+
     if (this.ignored.has(path)) return true;
 
     for (let folder = posix.dirname(path); folder !== "."; folder = posix.dirname(folder)) {

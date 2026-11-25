@@ -183,6 +183,8 @@ export class Footer {
   private wrap = false;
   private prompt?: FooterPrompt;
   private pending?: number;
+  private batchDepth = 0;
+  private dirty = false;
 
   constructor(private readonly renderer: CliRenderer) {
     this.root = new BoxRenderable(renderer, {
@@ -227,8 +229,22 @@ export class Footer {
     this.render();
   }
 
+  batch(update: () => void): void {
+    this.batchDepth += 1;
+    try {
+      update();
+    } finally {
+      this.batchDepth -= 1;
+
+      if (this.batchDepth === 0 && this.dirty) {
+        this.dirty = false;
+        this.render();
+      }
+    }
+  }
+
   restyle(): void {
-    this.render();
+    this.scheduleRender();
   }
 
   setBackground(color: string): void {
@@ -241,30 +257,38 @@ export class Footer {
 
     this.mode = mode;
     this.message = undefined;
-    this.render();
+    this.scheduleRender();
   }
 
   setFocus(focus: FooterFocus): void {
     if (focus === this.focus) return;
 
     this.focus = focus;
-    this.render();
+    this.scheduleRender();
   }
 
   setLocation(path: string): void {
-    this.location = tildify(displayLabel(path));
+    const next = tildify(displayLabel(path));
+
+    if (next === this.location && this.message === undefined) return;
+
+    this.location = next;
     this.message = undefined;
-    this.render();
+    this.scheduleRender();
   }
 
   setMessage(text: string, error = false): void {
+    if (this.message?.text === text && this.message.error === error) return;
+
     this.message = { text, error };
-    this.render();
+    this.scheduleRender();
   }
 
   clearMessage(): void {
+    if (this.message === undefined) return;
+
     this.message = undefined;
-    this.render();
+    this.scheduleRender();
   }
 
   setDocument(document: DocumentInfo | undefined): void {
@@ -272,7 +296,7 @@ export class Footer {
 
     if (!document) this.positions.browse = undefined;
 
-    this.render();
+    this.scheduleRender();
   }
 
   setDiff(diff: DiffInfo | undefined): void {
@@ -280,32 +304,43 @@ export class Footer {
 
     if (!diff) this.positions.diff = undefined;
 
-    this.render();
+    this.scheduleRender();
   }
 
   setPosition(position: string | undefined): void {
     if (position === this.positions[this.mode]) return;
 
     this.positions[this.mode] = position;
-    this.render();
+    this.scheduleRender();
   }
 
   setWrap(wrap: boolean): void {
+    if (wrap === this.wrap) return;
+
     this.wrap = wrap;
-    this.render();
+    this.scheduleRender();
   }
 
   setPending(count: number | undefined): void {
     if (count === this.pending) return;
 
     this.pending = count;
-    this.render();
+    this.scheduleRender();
   }
 
   setPrompt(prompt: FooterPrompt | undefined): void {
     if (prompt === this.prompt) return;
 
     this.prompt = prompt;
+    this.scheduleRender();
+  }
+
+  private scheduleRender(): void {
+    if (this.batchDepth > 0) {
+      this.dirty = true;
+      return;
+    }
+
     this.render();
   }
 

@@ -90,6 +90,8 @@ export class CodeView {
   private closing?: Promise<void>;
   private wrap = false;
   private document?: Document;
+  private codeSynced = false;
+  private previewSynced = false;
   private source = false;
   private needle?: string;
   private activeLine?: number;
@@ -209,7 +211,20 @@ export class CodeView {
     if (this.needle === query) return;
 
     this.needle = query;
-    this.present();
+
+    if (!this.document) return;
+
+    if (this.previewing) {
+      this.codeSynced = false;
+      return;
+    }
+
+    if (!this.codeSynced) return;
+
+    const language = languageFor(this.document.path);
+    this.code.filetype =
+      this.document.lineCount === 0 ? undefined : (language ?? (this.needle ? PLAIN_FILETYPE : undefined));
+    this.code.onHighlight = markMatches(this.needle);
   }
 
   get isMarkdown(): boolean {
@@ -233,12 +248,16 @@ export class CodeView {
     if (document.path !== this.document?.path) this.source = false;
 
     this.document = document;
+    this.codeSynced = false;
+    this.previewSynced = false;
     this.present();
     return language;
   }
 
   hide(): void {
     this.document = undefined;
+    this.codeSynced = false;
+    this.previewSynced = false;
     this.preview.visible = false;
     this.lines.visible = false;
   }
@@ -248,17 +267,29 @@ export class CodeView {
 
     if (!document) return;
 
-    const language = languageFor(document.path);
     this.preview.visible = this.previewing;
     this.lines.visible = !this.previewing;
 
-    if (this.previewing) this.preview.content = document.text;
+    if (this.previewing) {
+      if (!this.previewSynced) {
+        this.preview.content = document.text;
+        this.previewSynced = true;
+      }
 
-    this.code.filetype =
-      document.lineCount === 0 ? undefined : (language ?? (this.needle ? PLAIN_FILETYPE : undefined));
-    this.code.onHighlight = markMatches(this.needle);
-    this.code.content = document.lineCount === 0 ? "(empty file)" : document.text.replace(/\n$/, "");
-    this.lines.showLineNumbers = document.lineCount > 0;
+      this.fitContent();
+      return;
+    }
+
+    if (!this.codeSynced) {
+      const language = languageFor(document.path);
+      this.code.filetype =
+        document.lineCount === 0 ? undefined : (language ?? (this.needle ? PLAIN_FILETYPE : undefined));
+      this.code.onHighlight = markMatches(this.needle);
+      this.code.content = document.lineCount === 0 ? "(empty file)" : document.text.replace(/\n$/, "");
+      this.lines.showLineNumbers = document.lineCount > 0;
+      this.codeSynced = true;
+    }
+
     this.fitContent();
   }
 

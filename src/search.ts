@@ -1,13 +1,21 @@
 import { relative } from "node:path";
-import { readDirectory, readDocument, type DirectoryEntry } from "./files";
+import { isImagePath, readDirectoryRaw, readDocument, type DirectoryEntry } from "./files";
 
 export const MAX_INDEXED_ENTRIES = 20_000;
 export const MAX_MATCHES = 200;
+const DIR_BATCH = 32;
 
 export interface IndexedEntry {
   path: string;
   relative: string;
   kind: DirectoryEntry["kind"];
+  relativeLower?: string;
+  nameLower?: string;
+}
+
+function compareEntryName(left: DirectoryEntry, right: DirectoryEntry): number {
+  const directoryOrder = Number(right.kind === "directory") - Number(left.kind === "directory");
+  return directoryOrder || (left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
 }
 
 export async function indexTree(
@@ -18,23 +26,37 @@ export async function indexTree(
   const entries: IndexedEntry[] = [];
   let level = [root];
   while (level.length) {
-    // oxlint-disable-next-line no-await-in-loop
-    const listings = await Promise.all(level.map((folder) => readDirectory(folder).catch(() => [])));
     const next: string[] = [];
-    for (const children of listings) {
-      for (const child of children) {
-        if (skip(child.path)) continue;
+    for (let start = 0; start < level.length; start += DIR_BATCH) {
+      const batch = level.slice(start, start + DIR_BATCH);
+      // oxlint-disable-next-line no-await-in-loop
+      const listings = await Promise.all(batch.map((folder) => readDirectoryRaw(folder).catch(() => [])));
+      for (const children of listings) {
+        children.sort(compareEntryName);
+        for (const child of children) {
+          if (skip(child.path)) continue;
 
-        if (entries.length >= limit) return { entries, truncated: true };
+          if (entries.length >= limit) return { entries, truncated: true };
 
-        entries.push({ path: child.path, relative: relative(root, child.path), kind: child.kind });
+          const rel = relative(root, child.path);
+          const relativeLower = rel.toLowerCase();
+          const nameLower = relativeLower.slice(relativeLower.lastIndexOf("/") + 1);
+          entries.push({ path: child.path, relative: rel, kind: child.kind, relativeLower, nameLower });
 
-        if (child.kind === "directory") next.push(child.path);
+          if (child.kind === "directory") next.push(child.path);
+        }
       }
     }
     level = next;
   }
   return { entries, truncated: false };
+}
+
+function compareRelative(left: IndexedEntry, right: IndexedEntry): number {
+  return (
+    left.relative.length - right.relative.length ||
+    (left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0)
+  );
 }
 
 export function matchEntries(entries: IndexedEntry[], query: string): { matches: IndexedEntry[]; total: number } {
@@ -43,21 +65,32 @@ export function matchEntries(entries: IndexedEntry[], query: string): { matches:
   if (!words.length) return { matches: [], total: 0 };
 
   const [first = ""] = words;
-  const matching = entries.filter((entry) => {
-    const path = entry.relative.toLowerCase();
-    return words.every((word) => path.includes(word));
-  });
-  const rank = (entry: IndexedEntry): number => {
-    const name = entry.relative.slice(entry.relative.lastIndexOf("/") + 1).toLowerCase();
-    return name.includes(first) ? 0 : 1;
-  };
-  matching.sort(
-    (left, right) =>
-      rank(left) - rank(right) ||
-      left.relative.length - right.relative.length ||
-      (left.relative < right.relative ? -1 : left.relative > right.relative ? 1 : 0),
-  );
-  return { matches: matching.slice(0, MAX_MATCHES), total: matching.length };
+  const byName: IndexedEntry[] = [];
+  const byPath: IndexedEntry[] = [];
+  for (const entry of entries) {
+    const path = entry.relativeLower ?? entry.relative.toLowerCase();
+    let matched = true;
+    for (const word of words) {
+      if (!path.includes(word)) {
+        matched = false;
+        break;
+      }
+    }
+
+    if (!matched) continue;
+
+    const name = entry.nameLower ?? path.slice(path.lastIndexOf("/") + 1);
+
+    if (name.includes(first)) byName.push(entry);
+    else byPath.push(entry);
+  }
+  const total = byName.length + byPath.length;
+  byName.sort(compareRelative);
+
+  if (byName.length >= MAX_MATCHES) return { matches: byName.slice(0, MAX_MATCHES), total };
+
+  byPath.sort(compareRelative);
+  return { matches: [...byName, ...byPath.slice(0, MAX_MATCHES - byName.length)], total };
 }
 
 export const MAX_TEXT_HITS = 200;
@@ -92,11 +125,23 @@ function snippetOf(line: string, index: number, length: number): Pick<TextHit, "
   return { text: line.slice(from, from + SNIPPET_LENGTH), at: index - from, length };
 }
 
-function hitsIn(entry: IndexedEntry, text: string, needle: string, limit: number): { hits: TextHit[]; more: boolean } {
-  const lower = text.toLowerCase();
+function rawOffset(raw: string, lowerAt: number): number {
+  let lowerPos = 0;
+  for (let index = 0; index < raw.length; index += 1) {
+    if (lowerPos >= lowerAt) return index;
 
-  if (!lower.includes(needle)) return { hits: [], more: false };
+    lowerPos += raw[index]!.toLowerCase().length;
+  }
+  return raw.length;
+}
 
+function hitsInLines(
+  entry: IndexedEntry,
+  text: string,
+  lower: string,
+  needle: string,
+  limit: number,
+): { hits: TextHit[]; more: boolean } {
   const lines = text.split("\n");
   const lowerLines = lower.split("\n");
   const hits: TextHit[] = [];
@@ -107,12 +152,55 @@ function hitsIn(entry: IndexedEntry, text: string, needle: string, limit: number
 
     if (hits.length >= limit) return { hits, more: true };
 
+    const raw = lines[index] ?? "";
+    const start = line.length === raw.length ? at : rawOffset(raw, at);
+    const length = line.length === raw.length ? needle.length : rawOffset(raw, at + needle.length) - start;
     hits.push({
       path: entry.path,
       relative: entry.relative,
       line: index + 1,
-      ...snippetOf(lines[index] ?? "", at, needle.length),
+      ...snippetOf(raw, start, length),
     });
+  }
+  return { hits, more: false };
+}
+
+function hitsIn(entry: IndexedEntry, text: string, needle: string, limit: number): { hits: TextHit[]; more: boolean } {
+  const lower = text.toLowerCase();
+  let at = lower.indexOf(needle);
+
+  if (at < 0) return { hits: [], more: false };
+
+  if (lower.length !== text.length) return hitsInLines(entry, text, lower, needle, limit);
+
+  const hits: TextHit[] = [];
+  let lineNumber = 1;
+  let cursor = 0;
+  while (at >= 0) {
+    let newline = text.indexOf("\n", cursor);
+    while (newline >= 0 && newline < at) {
+      lineNumber += 1;
+      cursor = newline + 1;
+      newline = text.indexOf("\n", cursor);
+    }
+
+    const lineStart = cursor;
+    const lineEnd = newline >= 0 ? newline : text.length;
+
+    if (hits.length >= limit) return { hits, more: true };
+
+    hits.push({
+      path: entry.path,
+      relative: entry.relative,
+      line: lineNumber,
+      ...snippetOf(text.slice(lineStart, lineEnd), at - lineStart, needle.length),
+    });
+
+    if (newline < 0) break;
+
+    lineNumber += 1;
+    cursor = newline + 1;
+    at = lower.indexOf(needle, cursor);
   }
   return { hits, more: false };
 }
@@ -134,7 +222,9 @@ export async function searchText(
   for (let start = 0; start < files.length && !stopped; start += READ_BATCH) {
     const batch = files.slice(start, start + READ_BATCH);
     // oxlint-disable-next-line no-await-in-loop
-    const documents = await Promise.all(batch.map((entry) => readDocument(entry.path).catch(() => undefined)));
+    const documents = await Promise.all(
+      batch.map((entry) => (isImagePath(entry.path) ? undefined : readDocument(entry.path).catch(() => undefined))),
+    );
     for (const [index, entry] of batch.entries()) {
       const document = documents[index];
       scanned += 1;
