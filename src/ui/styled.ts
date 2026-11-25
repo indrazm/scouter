@@ -1,15 +1,9 @@
 import { StyledText, bg as background, bold as emphasis, fg as foreground, type TextChunk } from "@opentui/core";
 import { theme } from "./theme";
+import type { Segment } from "./types";
 
 export function scrollbarStyle(): { trackOptions: { backgroundColor: string; foregroundColor: string } } {
   return { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } };
-}
-
-export interface Segment {
-  text: string;
-  fg?: string;
-  bg?: string;
-  bold?: boolean;
 }
 
 export function styled(segments: Segment[]): StyledText {

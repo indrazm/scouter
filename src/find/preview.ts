@@ -1,7 +1,7 @@
 import { CodeRenderable, LineNumberRenderable, ScrollBoxRenderable, type CliRenderer } from "@opentui/core";
-import type { CodeView } from "../reader/code-view";
-import { languageFor } from "../reader/code-view";
-import { readDocument, type Document } from "../core/files";
+import { languageFor, type CodeView } from "../reader/code-view";
+import { readDocument } from "../core/files";
+import type { Document } from "../core/types";
 import { PLAIN_FILETYPE, markMatches } from "../reader/match-style";
 import { scrollbarStyle } from "../ui/styled";
 import { theme } from "../ui/theme";

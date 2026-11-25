@@ -1,7 +1,4 @@
-export interface Jump {
-  path: string;
-  top: number;
-}
+import type { Jump } from "./types";
 
 const LIMIT = 100;
 

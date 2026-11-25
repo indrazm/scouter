@@ -7,20 +7,15 @@ import {
   type RenderContext,
 } from "@opentui/core";
 import { extname, posix } from "node:path";
-import type { TreeEntry } from "./file-tree";
 import { displayLabel } from "../core/files";
 import { handleListKey } from "../core/keys";
-import { scrollbarStyle, styled, type Segment } from "../ui/styled";
+import { scrollbarStyle, styled } from "../ui/styled";
 import { theme, transparent } from "../ui/theme";
+import type { Segment } from "../ui/types";
+import type { RowStyle, TreeEntry } from "./types";
 
 interface ExplorerOptions {
   onActivate: () => void;
-}
-
-export interface RowStyle {
-  letter?: string;
-  color?: string;
-  ignored?: boolean;
 }
 
 interface ExplorerRow {

@@ -1,7 +1,5 @@
 import type { CliRenderer } from "@opentui/core";
 
-export type ClipboardWriter = (text: string) => Promise<boolean> | boolean;
-
 const utf8Encoder = new TextEncoder();
 
 function hostCommand(): string[] | undefined {

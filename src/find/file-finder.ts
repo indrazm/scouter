@@ -1,20 +1,13 @@
 import { BoxRenderable, TextRenderable, type KeyEvent, type RenderContext } from "@opentui/core";
-import type { FileExplorer, RowStyle } from "../explorer/explorer";
-import type { TreeEntry } from "../explorer/file-tree";
-import type { Footer } from "../ui/footer";
+import { treeRelative } from "../core/files";
 import { isPlain, isTyped } from "../core/keys";
-import { treeRelative } from "../diff/marks";
-import {
-  MAX_TEXT_HITS,
-  indexTree,
-  matchEntries,
-  searchText,
-  type IndexedEntry,
-  type TextHit,
-  type TextProgress,
-} from "./search";
+import type { FileExplorer } from "../explorer/explorer";
+import type { RowStyle, TreeEntry } from "../explorer/types";
+import type { Footer } from "../ui/footer";
 import { styled } from "../ui/styled";
 import { theme } from "../ui/theme";
+import { MAX_TEXT_HITS, indexTree, matchEntries, searchText } from "./search";
+import type { IndexedEntry, TextHit, TextProgress } from "./types";
 
 const MIN_TEXT_QUERY = 2;
 const SCAN_DELAY_MS = 150;

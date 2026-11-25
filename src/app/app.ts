@@ -1,70 +1,47 @@
-import {
-  BoxRenderable,
-  ScrollBoxRenderable,
-  TextRenderable,
-  type CliRenderer,
-  type KeyEvent,
-  type Selection,
-} from "@opentui/core";
+import { BoxRenderable, ScrollBoxRenderable, type CliRenderer, type KeyEvent, type Selection } from "@opentui/core";
 import { stat } from "node:fs/promises";
-import { basename, dirname, posix, resolve } from "node:path";
-import { BrowseWatcher, type RefreshOptions } from "../explorer/browse-watcher";
-import { copiedSummary, copyToClipboard, type ClipboardWriter } from "../core/clipboard";
-import { CodeView, languageFor } from "../reader/code-view";
-import { DiffScreen, MIN_SPLIT_COLUMNS, type DiffState } from "../diff/diff-screen";
-import { DocumentSearch } from "../reader/document-search";
-import { FileExplorer, type RowStyle } from "../explorer/explorer";
-import { FileFinder } from "../find/file-finder";
-import { FileTree, type TreeEntry } from "../explorer/file-tree";
-import { Footer } from "../ui/footer";
-import { PaneHeader, type HeaderBadge } from "../ui/header";
-import { boundaryOf, isPlain, isQuit, scrollByKey } from "../core/keys";
-import { GitMarks, treeRelative } from "../diff/marks";
-import { HitPreview } from "../find/preview";
-import { JumpHistory, type Jump } from "../reader/jump-history";
-import { createHelp } from "../ui/help";
-import { SidebarResizer } from "../explorer/sidebar-resizer";
-import { scrollbarStyle, styled } from "../ui/styled";
-import { SystemThemeWatcher, type SystemTheme } from "../ui/system-theme";
-import { setThemeMode, theme, tintedBackground } from "../ui/theme";
-import { createWelcome } from "../ui/welcome";
+import { basename, dirname, resolve } from "node:path";
+import { copiedSummary, copyToClipboard } from "../core/clipboard";
 import {
   BinaryFileError,
   describeError,
   displayLabel,
-  fileStamp,
   formatBytes,
   isImagePath,
-  readDocument,
   readDocumentWithStamp,
   readImage,
-  type Document,
-  type ImageFile,
+  treeRelative,
 } from "../core/files";
-import { ImageView, describeImage, type ImageDetails } from "../reader/image-view";
+import { boundaryOf, isPlain, isQuit, scrollByKey } from "../core/keys";
+import type { ClipboardWriter, Document, ImageFile } from "../core/types";
+import { DiffScreen, MIN_SPLIT_COLUMNS } from "../diff/diff-screen";
 import { GitError } from "../diff/git";
+import { GitMarks } from "../diff/marks";
+import type { DiffState } from "../diff/types";
+import { BrowseWatcher } from "../explorer/browse-watcher";
+import { FileExplorer } from "../explorer/explorer";
+import { FileTree } from "../explorer/file-tree";
+import { SidebarResizer } from "../explorer/sidebar-resizer";
+import type { RefreshOptions, RowStyle, TreeEntry } from "../explorer/types";
+import { FileFinder } from "../find/file-finder";
+import { languageFor } from "../reader/code-view";
+import { DocumentSearch } from "../reader/document-search";
+import { describeImage } from "../reader/image-view";
+import { JumpHistory } from "../reader/jump-history";
+import { ReaderMotion } from "../reader/reader-motion";
+import type { ImageDetails } from "../reader/types";
+import { Footer } from "../ui/footer";
+import { PaneHeader } from "../ui/header";
+import { createHelp } from "../ui/help";
+import { SystemThemeWatcher } from "../ui/system-theme";
+import { setThemeMode, theme, tintedBackground } from "../ui/theme";
+import type { SystemTheme } from "../ui/types";
+import { diffFooterFor, formatScrollPosition, sidebarHeaderFor, viewerBadgesFor, viewerHeaderFor } from "./chrome";
+import { ReaderPane } from "./reader-pane";
+import type { ScouterAppOptions } from "./types";
 
 const DIFF_POLL_MS = 2000;
-const MAX_COUNT = 99_999_999;
 const BROWSE_POLL_MS = 2000;
-
-export interface ScouterAppOptions {
-  diffPollMs?: number;
-  browsePollMs?: number;
-  imageProtocol?: "auto" | "kitty" | "sixel" | "blocks";
-  copy?: ClipboardWriter;
-}
-
-type Shown =
-  | { kind: "none" }
-  | { kind: "image"; title: string; path: string }
-  | { kind: "binary"; title: string; path: string; size: number }
-  | {
-      kind: "text";
-      document: Document;
-      title: string;
-      stamp?: string;
-    };
 
 export class ScouterApp {
   private readonly tree = new FileTree();
@@ -77,23 +54,15 @@ export class ScouterApp {
   private readonly viewerHeader: PaneHeader;
   private readonly copyWriter: ClipboardWriter;
   private readonly sidebar: SidebarResizer;
-  private readonly viewer: ScrollBoxRenderable;
-  private readonly codeView: CodeView;
-  private readonly imageView: ImageView;
+  private readonly readerPane: ReaderPane;
   private readonly footer: Footer;
-  private welcome: BoxRenderable;
-  private readonly binaryView: BoxRenderable;
-  private readonly binaryTitle: TextRenderable;
-  private readonly binaryMeta: TextRenderable;
-  private readonly binaryHint: TextRenderable;
   private readonly layout: BoxRenderable;
   private help?: BoxRenderable;
   private helpBackground: string = theme.fallbackBackground;
   private readonly diffScreen: DiffScreen;
   private readonly finder: FileFinder;
   private readonly search: DocumentSearch;
-  private readonly preview: HitPreview;
-  private previewPath?: string;
+  private readonly motion: ReaderMotion;
   private readonly watcher: BrowseWatcher;
   private readonly systemTheme: SystemThemeWatcher;
   private readonly marks = new GitMarks();
@@ -101,13 +70,8 @@ export class ScouterApp {
   private mode: "browse" | "diff" = "browse";
   private paneBeforeDiff: "list" | "reader" = "list";
   private focusPane?: "list" | "reader";
-  private shown: Shown = { kind: "none" };
-  private blankLines?: { text: string; lines: number[] };
   private wrap = false;
-  private zPending = false;
   private copyNoticeTimer?: ReturnType<typeof setTimeout>;
-
-  private count = 0;
   private readonly letterCommands = new Map<string, () => void>([
     ["w", () => this.toggleWrap()],
     ["m", () => this.toggleMarkdownSource()],
@@ -152,67 +116,15 @@ export class ScouterApp {
     });
     this.viewerHeader = new PaneHeader(renderer, "viewer-header");
     this.viewerHeader.setTitle("Reader");
-    this.updateViewerBadges();
     this.sidebar = new SidebarResizer(renderer, this.browserPanel);
-    this.viewer = new ScrollBoxRenderable(renderer, {
-      id: "viewer",
-      width: "100%",
-      flexGrow: 1,
-      flexBasis: 0,
-      minHeight: 0,
-      scrollX: true,
-      scrollY: true,
-      contentOptions: { flexDirection: "column" },
-      scrollbarOptions: scrollbarStyle(),
-      horizontalScrollbarOptions: { visible: false },
-      verticalScrollbarOptions: { onChange: () => this.updatePosition() },
-      onSizeChange: () => {
-        this.imageView.resize();
-        this.updatePosition();
-      },
+    this.readerPane = new ReaderPane(renderer, {
+      imageProtocol: options.imageProtocol,
+      onPositionChange: () => this.updatePosition(),
     });
-    this.viewer.visible = false;
-    this.welcome = createWelcome(renderer);
-    this.binaryView = new BoxRenderable(renderer, {
-      id: "binary-view",
-      flexGrow: 1,
-      flexBasis: 0,
-      minHeight: 0,
-      minWidth: 0,
-      flexDirection: "column",
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    });
-    this.binaryTitle = new TextRenderable(renderer, {
-      height: 1,
-      flexShrink: 0,
-      wrapMode: "none",
-      selectable: false,
-    });
-    this.binaryMeta = new TextRenderable(renderer, {
-      height: 1,
-      flexShrink: 0,
-      marginTop: 1,
-      wrapMode: "none",
-      selectable: false,
-    });
-    this.binaryHint = new TextRenderable(renderer, {
-      height: 1,
-      flexShrink: 0,
-      marginTop: 1,
-      wrapMode: "none",
-      selectable: false,
-    });
-    this.binaryView.add(this.binaryTitle);
-    this.binaryView.add(this.binaryMeta);
-    this.binaryView.add(this.binaryHint);
-    this.binaryView.visible = false;
-    this.codeView = new CodeView(renderer, { onLayout: () => this.updatePosition() });
-    this.imageView = new ImageView(renderer, options.imageProtocol);
+    this.updateViewerBadges();
     this.footer = new Footer(renderer);
     this.diffScreen = new DiffScreen(renderer, {
-      syntax: this.codeView.syntax,
+      syntax: this.readerPane.syntax,
       onChange: this.onDiffChange,
       onActivate: this.onDiffActivate,
       onFocusList: this.onDiffFocusList,
@@ -221,7 +133,6 @@ export class ScouterApp {
     });
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
-    this.preview = new HitPreview(renderer, this.codeView.syntax);
     this.finder = new FileFinder(renderer, {
       browser: this.browser,
       footer: this.footer,
@@ -235,11 +146,26 @@ export class ScouterApp {
     });
     this.search = new DocumentSearch({
       footer: this.footer,
-      text: () => (this.shown.kind === "text" ? this.shown.document.text : undefined),
-      topLine: () => Math.floor(this.viewer.scrollTop),
+      text: () => this.readerPane.document?.text,
+      topLine: () => Math.floor(this.readerPane.viewer.scrollTop),
       scrollToLine: (line) => this.scrollToLine(line),
-      highlight: (query) => this.codeView.setHighlight(query),
-      highlightLine: (line) => this.codeView.setActiveLine(line),
+      highlight: (query) => this.readerPane.codeView.setHighlight(query),
+      highlightLine: (line) => this.readerPane.codeView.setActiveLine(line),
+    });
+    this.motion = new ReaderMotion({
+      canAcceptCount: () => !this.list.focused && this.mode === "browse" && this.readerReady,
+      isPreviewing: () => this.readerPane.previewing,
+      documentText: () => this.readerPane.document?.text,
+      currentMatchLine: () => this.search.currentLine(),
+      scrollTop: () => this.readerPane.viewer.scrollTop,
+      viewportHeight: () => this.readerPane.viewer.viewport.height,
+      scrollTo: (position) => {
+        this.readerPane.viewer.scrollTo(position);
+        this.updatePosition();
+      },
+      scrollToLine: (line) => this.scrollToLine(line),
+      setPending: (count) => this.footer.setPending(count),
+      setMessage: (text) => this.footer.setMessage(text),
     });
     this.watcher = new BrowseWatcher({
       pollMs: options.browsePollMs ?? BROWSE_POLL_MS,
@@ -250,13 +176,8 @@ export class ScouterApp {
     this.browserPanel.add(this.finder.bar);
     this.browserPanel.add(this.browser);
     this.browserPanel.add(this.diffScreen.list);
-    this.codeView.mount(this.viewer);
-    this.imageView.mount(this.viewer);
     this.viewerPanel.add(this.viewerHeader.root);
-    this.viewerPanel.add(this.welcome);
-    this.viewerPanel.add(this.binaryView);
-    this.viewerPanel.add(this.viewer);
-    this.viewerPanel.add(this.preview.root);
+    this.readerPane.mount(this.viewerPanel);
     this.viewerPanel.add(this.diffScreen.body);
     panes.add(this.browserPanel);
     panes.add(this.sidebar.handle);
@@ -275,22 +196,6 @@ export class ScouterApp {
     this.watcher.start();
   }
 
-  private get document(): Document | undefined {
-    return this.shown.kind === "text" ? this.shown.document : undefined;
-  }
-
-  private get hasDocument(): boolean {
-    return this.shown.kind === "text" || this.shown.kind === "image";
-  }
-
-  private get isImage(): boolean {
-    return this.shown.kind === "image";
-  }
-
-  private get isBinary(): boolean {
-    return this.shown.kind === "binary";
-  }
-
   private applyTheme({ mode, background }: SystemTheme): void {
     if (this.renderer.isDestroyed) return;
 
@@ -298,30 +203,18 @@ export class ScouterApp {
     const tint = tintedBackground(background);
     this.footer.setBackground(tint);
     this.diffScreen.setTint(tint);
-    const replacedStyle = this.codeView.restyle();
+    const replacedStyle = this.readerPane.restyle();
     this.diffScreen.restyle();
-    this.preview.restyle();
     this.browser.repaint((entry) => this.styleOf(entry));
     this.finder.restyle();
-    this.viewer.scrollbarOptions = scrollbarStyle();
     this.browserHeader.restyle();
     this.viewerHeader.restyle();
     this.footer.restyle();
-    this.rebuildWelcome();
-    this.paintBinaryView();
     this.rebuildHelp(tint);
     this.focusPane = undefined;
     this.updateFocus();
     replacedStyle.destroy();
     this.renderer.requestRender();
-  }
-
-  private rebuildWelcome(): void {
-    const visible = this.welcome.visible;
-    this.welcome.destroyRecursively();
-    this.welcome = createWelcome(this.renderer);
-    this.welcome.visible = visible;
-    this.viewerPanel.add(this.welcome, 1);
   }
 
   private ensureHelp(): BoxRenderable {
@@ -347,7 +240,7 @@ export class ScouterApp {
   }
 
   async open(path: string): Promise<void> {
-    await this.show(path, () => this.jumps.leave(this.here()));
+    await this.show(path, () => this.jumps.leave(this.readerPane.here()));
   }
 
   private async show(path: string, beforeOpen?: () => void, top = 0): Promise<void> {
@@ -360,7 +253,7 @@ export class ScouterApp {
         beforeOpen?.();
         await this.openPath(resolve(path));
 
-        if (top > 0 && this.document && !this.renderer.isDestroyed) this.scrollToTop(top);
+        if (top > 0 && this.readerPane.document && !this.renderer.isDestroyed) this.scrollToTop(top);
       },
       () => this.focusBrowser(),
     );
@@ -368,20 +261,12 @@ export class ScouterApp {
     if (opened) void this.watcher.refresh({ marksOnly: true });
   }
 
-  private here(): Jump | undefined {
-    if (this.shown.kind === "none") return undefined;
-
-    if (this.shown.kind === "image" || this.shown.kind === "binary") return { path: this.shown.path, top: 0 };
-
-    return { path: this.shown.document.path, top: Math.floor(this.viewer.scrollTop) };
-  }
-
   private async jump(direction: "back" | "forward"): Promise<void> {
     if (this.renderer.isDestroyed) return;
 
     if (this.loading) return this.refuseWhileLoading();
 
-    const here = this.here();
+    const here = this.readerPane.here();
     const can = direction === "back" ? this.jumps.canGoBack : this.jumps.canGoForward;
 
     if (!can) {
@@ -399,7 +284,7 @@ export class ScouterApp {
   }
 
   private scrollToTop(top: number): void {
-    this.viewer.scrollTo({ x: 0, y: top });
+    this.readerPane.scrollToTop(top);
     this.updatePosition();
   }
 
@@ -478,7 +363,7 @@ export class ScouterApp {
 
     this.renderTree(path);
 
-    if (this.hasDocument) this.footer.clearMessage();
+    if (this.readerPane.hasDocument) this.footer.clearMessage();
     else this.footer.setLocation(path);
 
     this.focusBrowser();
@@ -492,18 +377,10 @@ export class ScouterApp {
 
   private updateSidebarHeader(diffState?: DiffState): void {
     this.browserHeader.root.visible = !this.finder.active;
-
-    if (this.mode === "diff") {
-      const state = diffState ?? this.diffScreen.state();
-      const count = `${state.files}${state.truncated ? "+" : ""}`;
-      this.browserHeader.setTitle("Changes");
-      this.browserHeader.setBadges([{ text: count, kind: "quiet" }]);
-      return;
-    }
-
-    const root = this.tree.rootPath;
-    this.browserHeader.setTitle(root ? displayLabel(basename(root)) : "Files");
-    this.browserHeader.setBadges([{ text: "files", kind: "quiet" }]);
+    const state = this.mode === "diff" ? (diffState ?? this.diffScreen.state()) : undefined;
+    const header = sidebarHeaderFor(this.tree.rootPath, state);
+    this.browserHeader.setTitle(header.title);
+    this.browserHeader.setBadges(header.badges);
   }
 
   private styleOf(entry: TreeEntry): RowStyle {
@@ -513,11 +390,8 @@ export class ScouterApp {
 
   private showImage(file: ImageFile, details: ImageDetails): void {
     this.footer.batch(() => {
-      this.codeView.hide();
+      this.readerPane.showImage(file, this.mode === "browse");
       this.search.clear();
-      this.shown = { kind: "image", title: displayLabel(basename(file.path)), path: file.path };
-      this.revealReader();
-      this.imageView.show(file);
       this.footer.setLocation(file.path);
       this.footer.setDocument({ lines: 0, language: details.format, image: details });
       this.finishShowing();
@@ -526,26 +400,17 @@ export class ScouterApp {
 
   private showDocument(document: Document, stamp: string): void {
     this.footer.batch(() => {
-      this.imageView.hide();
-      const language = this.codeView.show(document);
-      this.shown = { kind: "text", document, stamp, title: displayLabel(basename(document.path)) };
-      this.revealReader();
+      const language = this.readerPane.showDocument(document, stamp, this.mode === "browse");
       this.footer.setLocation(document.path);
-      this.setDocumentInfo(document, language);
+      this.footer.setDocument(this.readerPane.documentInfo(document, language));
       this.search.refresh();
       this.finishShowing();
     });
   }
 
   private showBinary(path: string, size: number): void {
-    this.codeView.hide();
-    this.imageView.hide();
+    this.readerPane.showBinary(path, size, this.mode === "browse");
     this.search.clear();
-    this.shown = { kind: "binary", title: displayLabel(basename(path)), path, size };
-    this.welcome.visible = false;
-    this.viewer.visible = false;
-    this.binaryView.visible = this.mode === "browse";
-    this.paintBinaryView();
     this.footer.setLocation(path);
     this.footer.setDocument({ lines: 0, language: "binary", binary: { size: formatBytes(size) } });
     this.updateChrome();
@@ -553,52 +418,23 @@ export class ScouterApp {
     this.renderer.requestRender();
   }
 
-  private paintBinaryView(): void {
-    if (this.shown.kind !== "binary") return;
-
-    this.binaryTitle.content = styled([{ text: "Binary files are not supported.", fg: theme.text, bold: true }]);
-    this.binaryMeta.content = styled([
-      { text: this.shown.title, fg: theme.accentSoft },
-      { text: "  ·  ", fg: theme.ignored },
-      { text: formatBytes(this.shown.size), fg: theme.muted },
-    ]);
-    this.binaryHint.content = styled([{ text: "Scouter only displays UTF-8 text and images.", fg: theme.dim }]);
-  }
-
-  private revealReader(): void {
-    this.welcome.visible = false;
-    this.binaryView.visible = false;
-    this.viewer.visible = this.mode === "browse";
-    this.viewer.scrollTo({ x: 0, y: 0 });
-  }
-
   private finishShowing(): void {
     this.updateChrome();
     this.updatePosition();
 
-    if (this.mode === "browse") this.viewer.focus();
+    if (this.mode === "browse") this.readerPane.viewer.focus();
 
     this.updateFocus();
   }
 
-  private setDocumentInfo(document: Document, language: string | undefined): void {
-    const info = {
-      lines: document.lineCount,
-      language: language ?? "plain text",
-      rendered: this.codeView.isMarkdown ? this.codeView.previewing : undefined,
-      truncated: document.truncated ? true : undefined,
-    };
-    this.footer.setDocument(info);
-  }
-
   private toggleMarkdownSource(): void {
-    const document = this.document;
+    if (this.mode !== "browse") return;
 
-    if (!document || !this.codeView.isMarkdown || this.mode !== "browse") return;
+    const document = this.readerPane.toggleMarkdownSource();
 
-    this.codeView.toggleSource();
-    this.viewer.scrollTo({ x: 0, y: 0 });
-    this.setDocumentInfo(document, languageFor(document.path));
+    if (!document) return;
+
+    this.footer.setDocument(this.readerPane.documentInfo(document, languageFor(document.path)));
     this.updateViewerBadges();
     this.updatePosition();
     this.renderer.requestRender();
@@ -609,71 +445,27 @@ export class ScouterApp {
   }
 
   private get reader(): ScrollBoxRenderable {
-    return this.mode === "diff" ? this.diffScreen.scroller : this.viewer;
+    return this.mode === "diff" ? this.diffScreen.scroller : this.readerPane.viewer;
   }
 
   private get readerReady(): boolean {
-    return this.mode === "diff" ? this.diffScreen.showingDiff : this.hasDocument;
-  }
-
-  private titleParts(path: string): { title: string; parent?: string } {
-    const title = displayLabel(basename(path));
-    const root = this.tree.rootPath;
-
-    if (!root) return { title };
-
-    const relative = treeRelative(root, path);
-
-    if (!relative || relative.startsWith("../")) return { title };
-
-    const folder = posix.dirname(relative);
-    return folder === "." ? { title } : { title, parent: `${displayLabel(folder)}/` };
+    return this.mode === "diff" ? this.diffScreen.showingDiff : this.readerPane.hasDocument;
   }
 
   private updateChrome(): void {
     const diffState = this.mode === "diff" ? this.diffScreen.state() : undefined;
     this.updateSidebarHeader(diffState);
+    const header = viewerHeaderFor(this.readerPane.previewPath, this.tree.rootPath, this.readerPane.shown, diffState);
+    this.viewerHeader.setTitle(header.title, header.parent);
 
-    if (this.previewPath !== undefined) {
-      const { title, parent } = this.titleParts(this.previewPath);
-      this.viewerHeader.setTitle(title, parent);
+    if (this.readerPane.previewPath !== undefined) {
       this.viewerHeader.setBadges([{ text: "preview", kind: "pill" }]);
       return;
     }
 
-    if (this.mode === "browse") {
-      if (this.shown.kind === "none") {
-        this.viewerHeader.setTitle("Reader");
-      } else {
-        const path = this.shown.kind === "text" ? this.shown.document.path : this.shown.path;
-        const { title, parent } = this.titleParts(path);
-        this.viewerHeader.setTitle(title, parent);
-      }
+    this.updateViewerBadges(diffState);
 
-      this.updateViewerBadges();
-      return;
-    }
-
-    const state = diffState!;
-
-    if (state.selected) {
-      const folder = posix.dirname(state.selected.path);
-      this.viewerHeader.setTitle(
-        displayLabel(basename(state.selected.path)),
-        folder === "." ? undefined : `${displayLabel(folder)}/`,
-      );
-    } else {
-      this.viewerHeader.setTitle("Changes");
-    }
-
-    this.updateViewerBadges(state);
-    this.footer.setDiff({
-      location: state.selected?.path ?? state.repository,
-      files: state.files,
-      truncated: state.truncated,
-      scope: state.scope,
-      ...state.patch,
-    });
+    if (diffState) this.footer.setDiff(diffFooterFor(diffState));
   }
 
   private readonly onDiffChange = (): void => {
@@ -748,12 +540,10 @@ export class ScouterApp {
   }
 
   private enterDiff(): void {
-    this.paneBeforeDiff = this.viewer.focused ? "reader" : "list";
+    this.paneBeforeDiff = this.readerPane.viewer.focused ? "reader" : "list";
     this.mode = "diff";
     this.browser.visible = false;
-    this.viewer.visible = false;
-    this.welcome.visible = false;
-    this.binaryView.visible = false;
+    this.readerPane.setBrowseVisible(false);
     this.diffScreen.list.visible = true;
     this.diffScreen.body.visible = true;
     this.footer.batch(() => {
@@ -771,15 +561,13 @@ export class ScouterApp {
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
     this.browser.visible = true;
-    this.welcome.visible = this.shown.kind === "none";
-    this.binaryView.visible = this.isBinary;
-    this.viewer.visible = this.hasDocument;
+    this.readerPane.setBrowseVisible(true);
     this.footer.batch(() => {
       this.footer.setMode("browse");
       this.updateChrome();
       this.updatePosition();
 
-      if (this.paneBeforeDiff === "reader" && this.hasDocument) this.viewer.focus();
+      if (this.paneBeforeDiff === "reader" && this.readerPane.hasDocument) this.readerPane.viewer.focus();
       else this.browser.focus();
 
       this.updateFocus();
@@ -801,7 +589,17 @@ export class ScouterApp {
         : await Promise.all(this.tree.expandedPaths().map((path) => this.tree.refresh(path)));
       const marks = await this.marks.refresh(root);
 
-      if (!marksOnly) await this.refreshDocument();
+      if (!marksOnly) {
+        await this.readerPane.refreshDocument(
+          (path) => this.showError(`${displayLabel(basename(path))} is no longer on disk.`),
+          (next) => {
+            this.footer.setDocument(this.readerPane.documentInfo(next, languageFor(next.path)));
+            this.search.refresh();
+            this.updateChrome();
+            this.updatePosition();
+          },
+        );
+      }
 
       if (this.renderer.isDestroyed || this.mode !== "browse") return;
 
@@ -809,39 +607,6 @@ export class ScouterApp {
         this.renderTree(this.browser.selected()?.path ?? root);
       }
     } catch {}
-  }
-
-  private async refreshDocument(): Promise<void> {
-    const shown = this.shown;
-
-    if (shown.kind !== "text" || shown.stamp === undefined) return;
-
-    const path = shown.document.path;
-    let stamp: string;
-    try {
-      stamp = await fileStamp(path);
-    } catch {
-      shown.stamp = undefined;
-      this.showError(`${displayLabel(basename(path))} is no longer on disk.`);
-      return;
-    }
-
-    if (stamp === shown.stamp) return;
-
-    const next = await readDocument(path);
-
-    if (this.renderer.isDestroyed || this.shown !== shown) return;
-
-    shown.stamp = stamp;
-
-    if (next.text === shown.document.text && next.truncated === shown.document.truncated) return;
-
-    shown.document = next;
-    this.codeView.show(next);
-    this.setDocumentInfo(next, languageFor(path));
-    this.search.refresh();
-    this.updateChrome();
-    this.updatePosition();
   }
 
   private async goUp(): Promise<void> {
@@ -877,50 +642,21 @@ export class ScouterApp {
   }
 
   private updateViewerBadges(diffState?: DiffState): void {
-    const badges: HeaderBadge[] = [];
-
-    if (this.mode === "diff") {
-      const state = diffState ?? this.diffScreen.state();
-
-      if (state.selected) badges.push({ text: state.selected.kind, kind: "quiet" });
-
-      badges.push({ text: state.scope === "all" ? "all files" : "one file", kind: "quiet" });
-
-      if (state.view === "split") badges.push({ text: "split", kind: "pill" });
-
-      if (state.expandedContext) badges.push({ text: "wide context", kind: "pill" });
-    } else {
-      badges.push({ text: "read-only", kind: "quiet" });
-    }
-
-    const rendered = this.mode === "browse" && this.hasDocument && this.codeView.previewing;
-
-    if (rendered) badges.push({ text: "rendered", kind: "quiet" });
-
-    if (this.mode === "browse" && this.isImage) badges.push({ text: "image", kind: "quiet" });
-
-    if (this.mode === "browse" && this.isBinary) badges.push({ text: "binary", kind: "quiet" });
-
-    if (this.mode === "browse" && this.document?.truncated) badges.push({ text: "first 1 MiB", kind: "pill" });
-
-    if (this.wrap && !rendered && !this.isImage && !this.isBinary) badges.push({ text: "wrap", kind: "pill" });
-
-    this.viewerHeader.setBadges(badges);
+    const state = this.mode === "diff" ? (diffState ?? this.diffScreen.state()) : undefined;
+    this.viewerHeader.setBadges(viewerBadgesFor(this.readerPane.shown, this.wrap, this.readerPane.previewing, state));
   }
 
   private updatePosition(): void {
     if (!this.readerReady) return;
 
-    const range = this.reader.scrollHeight - this.reader.viewport.height;
-    const top = this.reader.scrollTop;
     this.footer.setPosition(
-      range <= 0 ? "All" : top <= 0 ? "Top" : top >= range ? "Bot" : `${Math.round((top / range) * 100)}%`,
+      formatScrollPosition(this.reader.scrollHeight, this.reader.viewport.height, this.reader.scrollTop),
     );
   }
 
   private toggleWrap(): void {
     this.wrap = !this.wrap;
-    this.codeView.setWrap(this.wrap);
+    this.readerPane.setWrap(this.wrap);
     this.diffScreen.setWrap(this.wrap);
     this.footer.setWrap(this.wrap);
     this.updateViewerBadges();
@@ -998,8 +734,7 @@ export class ScouterApp {
 
     if (this.finder.handleKey(key) || this.search.handleKey(key)) return;
 
-    const afterZ = this.zPending;
-    this.zPending = false;
+    const afterZ = this.motion.consumeZ();
 
     if (isQuit(key)) {
       key.preventDefault();
@@ -1013,9 +748,9 @@ export class ScouterApp {
       return;
     }
 
-    if (this.absorbCount(key)) return;
+    if (this.motion.absorbCount(key)) return;
 
-    const count = this.takeCount();
+    const count = this.motion.takeCount();
     const command = this.commandFor(key);
 
     if (command) {
@@ -1098,9 +833,11 @@ export class ScouterApp {
 
     if (this.list.focused) return this.browser.selected()?.path;
 
-    if (this.shown.kind === "text") return this.shown.document.path;
+    const shown = this.readerPane.shown;
 
-    if (this.shown.kind === "image") return this.shown.path;
+    if (shown.kind === "text") return shown.document.path;
+
+    if (shown.kind === "image") return shown.path;
 
     return this.browser.selected()?.path;
   }
@@ -1204,30 +941,6 @@ export class ScouterApp {
     this.browser.selectBoundary(edge);
   }
 
-  private absorbCount(key: KeyEvent): boolean {
-    const digit = /^[0-9]$/.test(key.sequence) && isPlain(key) ? Number(key.sequence) : undefined;
-
-    if (digit === undefined || this.list.focused || this.mode !== "browse" || !this.readerReady) return false;
-
-    if (this.codeView.previewing || (!this.count && !digit)) return false;
-
-    key.preventDefault();
-    this.count = Math.min(this.count * 10 + digit, MAX_COUNT);
-    this.footer.setPending(this.count);
-    return true;
-  }
-
-  private takeCount(): number {
-    const count = this.count;
-
-    if (count) {
-      this.count = 0;
-      this.footer.setPending(undefined);
-    }
-
-    return count;
-  }
-
   private handleViewerKey(key: KeyEvent, count: number, afterZ: boolean): void {
     if (key.meta) return;
 
@@ -1235,7 +948,7 @@ export class ScouterApp {
 
     if (this.mode === "browse" && this.handleSearchKeyInReader(key)) return;
 
-    if (this.mode === "browse" && this.handleMotionInReader(key, afterZ)) return;
+    if (this.mode === "browse" && this.motion.handleKey(key, afterZ)) return;
 
     const edge = boundaryOf(key);
 
@@ -1255,80 +968,6 @@ export class ScouterApp {
 
     key.preventDefault();
     return true;
-  }
-
-  private handleMotionInReader(key: KeyEvent, afterZ: boolean): boolean {
-    if (!isPlain(key)) return false;
-
-    if (afterZ) {
-      if (key.name !== "z" || key.shift) return false;
-
-      key.preventDefault();
-      this.centreReader();
-      return true;
-    }
-
-    if (key.name === "z" && !key.shift) {
-      key.preventDefault();
-      this.zPending = true;
-      return true;
-    }
-
-    if (key.sequence !== "{" && key.sequence !== "}") return false;
-
-    key.preventDefault();
-    this.moveByParagraph(key.sequence === "}" ? 1 : -1);
-    return true;
-  }
-
-  private blankLinesOf(text: string): number[] {
-    if (this.blankLines?.text === text) return this.blankLines.lines;
-
-    const lines: number[] = [];
-    let index = 0;
-    let start = 0;
-    while (start <= text.length) {
-      const end = text.indexOf("\n", start);
-      const stop = end < 0 ? text.length : end;
-      let blank = true;
-      for (let cursor = start; cursor < stop; cursor += 1) {
-        const code = text.charCodeAt(cursor);
-
-        if (code !== 32 && code !== 9 && code !== 13) {
-          blank = false;
-          break;
-        }
-      }
-
-      if (blank) lines.push(index);
-
-      if (end < 0) break;
-
-      start = end + 1;
-      index += 1;
-    }
-    this.blankLines = { text, lines };
-    return lines;
-  }
-
-  private moveByParagraph(direction: 1 | -1): void {
-    if (!this.document) return;
-
-    if (this.codeView.previewing) {
-      this.footer.setMessage("Press m to move by paragraph in this Markdown file's source.");
-      return;
-    }
-
-    const blanks = this.blankLinesOf(this.document.text);
-    const top = Math.floor(this.viewer.scrollTop);
-    const target = direction > 0 ? blanks.find((line) => line > top) : blanks.findLast((line) => line < top);
-    this.viewer.scrollTo(target === undefined ? (direction > 0 ? Infinity : 0) : target);
-    this.updatePosition();
-  }
-
-  private centreReader(): void {
-    const match = this.codeView.previewing ? undefined : this.search.currentLine();
-    this.scrollToLine(match ?? Math.floor(this.viewer.scrollTop + this.viewer.viewport.height / 2));
   }
 
   private startFind(): void {
@@ -1353,40 +992,13 @@ export class ScouterApp {
   }
 
   private async previewHit(entry: TreeEntry | undefined, query: string): Promise<void> {
-    const match = entry?.match;
-
-    if (!entry || !match) {
-      this.endPreview();
-      return;
-    }
-
-    if (!(await this.preview.show(entry.path, match.line, query)) || this.renderer.isDestroyed) return;
-
-    this.viewer.visible = false;
-    this.welcome.visible = false;
-    this.binaryView.visible = false;
-    this.previewPath = entry.path;
-    this.updateChrome();
-  }
-
-  private endPreview(): void {
-    if (!this.preview.active) {
-      this.preview.hide();
-      return;
-    }
-
-    this.preview.hide();
-    this.previewPath = undefined;
-    this.welcome.visible = this.shown.kind === "none";
-    this.binaryView.visible = this.isBinary;
-    this.viewer.visible = this.hasDocument;
-    this.updateChrome();
+    if (await this.readerPane.previewHit(entry, query)) this.updateChrome();
   }
 
   private startSearch(): void {
-    if (!this.document) return;
+    if (!this.readerPane.document) return;
 
-    if (this.codeView.previewing) {
+    if (this.readerPane.previewing) {
       this.footer.setMessage("Press m to search this Markdown file's source.");
       return;
     }
@@ -1395,7 +1007,7 @@ export class ScouterApp {
   }
 
   private scrollToLine(line: number): void {
-    this.viewer.scrollTo({ x: 0, y: Math.max(0, line - Math.floor(this.viewer.viewport.height / 2)) });
+    this.readerPane.scrollToLine(line);
     this.updatePosition();
   }
 
@@ -1412,18 +1024,18 @@ export class ScouterApp {
   }
 
   private async openAt(path: string, line: number, query?: string): Promise<void> {
-    if (query) this.codeView.setHighlight(query);
+    if (query) this.readerPane.codeView.setHighlight(query);
 
     await this.open(path);
 
     if (this.renderer.isDestroyed) return;
 
-    if (this.document?.path !== path) {
+    if (this.readerPane.document?.path !== path) {
       this.search.syncHighlight();
       return;
     }
 
-    if (this.codeView.previewing) this.toggleMarkdownSource();
+    if (this.readerPane.previewing) this.toggleMarkdownSource();
 
     this.scrollToLine(line - 1);
 
@@ -1440,7 +1052,7 @@ export class ScouterApp {
     this.sidebar.dispose();
     this.systemTheme.stop();
     this.workerClosed = Promise.all([
-      this.codeView.destroy(),
+      this.readerPane.destroy(),
       this.diffScreen.close(),
       this.watcher.stop().then(() => this.marks.close()),
     ]).then(() => undefined);

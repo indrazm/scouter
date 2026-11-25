@@ -1,6 +1,5 @@
-import { RGBA, type ThemeMode } from "@opentui/core";
-
-export type { ThemeMode };
+import { RGBA } from "@opentui/core";
+import type { ThemeMode } from "./types";
 
 interface Palette {
   text: string;

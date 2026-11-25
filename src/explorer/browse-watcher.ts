@@ -1,8 +1,6 @@
-const MAX_POLL_MS = 30_000;
+import type { RefreshOptions } from "./types";
 
-export interface RefreshOptions {
-  marksOnly?: boolean;
-}
+const MAX_POLL_MS = 30_000;
 
 interface BrowseWatcherOptions {
   pollMs: number;

@@ -1,17 +1,11 @@
 import { relative } from "node:path";
-import { isImagePath, readDirectoryRaw, readDocument, type DirectoryEntry } from "../core/files";
+import { isImagePath, readDirectoryRaw, readDocument } from "../core/files";
+import type { DirectoryEntry } from "../core/types";
+import type { IndexedEntry, TextHit, TextProgress } from "./types";
 
 export const MAX_INDEXED_ENTRIES = 20_000;
 export const MAX_MATCHES = 200;
 const DIR_BATCH = 32;
-
-export interface IndexedEntry {
-  path: string;
-  relative: string;
-  kind: DirectoryEntry["kind"];
-  relativeLower?: string;
-  nameLower?: string;
-}
 
 function compareEntryName(left: DirectoryEntry, right: DirectoryEntry): number {
   const directoryOrder = Number(right.kind === "directory") - Number(left.kind === "directory");
@@ -100,24 +94,6 @@ const READ_BATCH = 16;
 const REPORT_INTERVAL_MS = 120;
 const SNIPPET_LEAD = 40;
 const SNIPPET_LENGTH = 300;
-
-export interface TextHit {
-  path: string;
-  relative: string;
-  line: number;
-  text: string;
-  at: number;
-  length: number;
-}
-
-export interface TextProgress {
-  hits: TextHit[];
-  files: number;
-  scanned: number;
-  total: number;
-  truncated: boolean;
-  done: boolean;
-}
 
 function snippetOf(line: string, index: number, length: number): Pick<TextHit, "text" | "at" | "length"> {
   const indent = line.length - line.trimStart().length;

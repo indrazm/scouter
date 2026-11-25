@@ -1,8 +1,9 @@
 import { realpath } from "node:fs/promises";
 import { posix, relative } from "node:path";
 import { statusOf } from "./changes";
-import { closeRepository, listMarks, openRepository, type Change, type Repository } from "./git";
-import type { RowStyle } from "../explorer/explorer";
+import { closeRepository, listMarks, openRepository } from "./git";
+import type { Change, Repository } from "./types";
+import type { RowStyle } from "../explorer/types";
 import { theme } from "../ui/theme";
 
 export class GitMarks {
@@ -99,8 +100,4 @@ function relativeWithin(within: string, path: string): string | undefined {
   if (!within) return path;
 
   return path.startsWith(`${within}/`) ? path.slice(within.length + 1) : undefined;
-}
-
-export function treeRelative(root: string, path: string): string {
-  return relative(root, path).split("\\").join("/");
 }

@@ -1,14 +1,8 @@
 import { expect, test } from "bun:test";
 import { mkdir, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  MAX_TEXT_HITS,
-  indexTree,
-  matchEntries,
-  searchText,
-  type IndexedEntry,
-  type TextProgress,
-} from "../src/find/search";
+import { MAX_TEXT_HITS, indexTree, matchEntries, searchText } from "../src/find/search";
+import type { IndexedEntry, TextProgress } from "../src/find/types";
 import { withDirectory } from "./fixtures";
 
 const entry = (relative: string, kind: IndexedEntry["kind"] = "file"): IndexedEntry => ({

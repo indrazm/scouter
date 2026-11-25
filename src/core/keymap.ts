@@ -1,4 +1,4 @@
-export type KeyRow = [keys: string, action: string];
+import type { KeyRow } from "./types";
 
 export const keySections: [title: string, rows: KeyRow[]][] = [
   [

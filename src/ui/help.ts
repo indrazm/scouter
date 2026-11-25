@@ -1,7 +1,8 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
 import { KEY_COLUMN, keySections } from "../core/keymap";
-import { styled, type Segment } from "./styled";
+import { styled } from "./styled";
 import { theme } from "./theme";
+import type { Segment } from "./types";
 
 interface HeadingStyle {
   fg?: string;

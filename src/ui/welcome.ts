@@ -1,7 +1,8 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
 import { version } from "../../package.json";
-import { styled, type Segment } from "./styled";
+import { styled } from "./styled";
 import { theme } from "./theme";
+import type { Segment } from "./types";
 
 const wordmark = ["█▀▀ █▀▀ █▀█ █ █ ▀█▀ █▀▀ █▀▄", "▀▀█ █   █ █ █ █  █  █▀▀ █▀▄", "▀▀▀ ▀▀▀ ▀▀▀ ▀▀▀  ▀  ▀▀▀ ▀ ▀"];
 

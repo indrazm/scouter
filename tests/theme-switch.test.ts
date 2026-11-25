@@ -4,7 +4,8 @@ import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { ScouterApp } from "../src/app/app";
-import { brightness, palettes, setThemeMode, theme, tintedBackground, type ThemeMode } from "../src/ui/theme";
+import { brightness, palettes, setThemeMode, theme, tintedBackground } from "../src/ui/theme";
+import type { ThemeMode } from "../src/ui/types";
 import {
   borderColorOf,
   channels,

@@ -1,15 +1,8 @@
 import { realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
-import { readDirectory, type DirectoryEntry } from "../core/files";
-import type { TextHit } from "../find/search";
-
-export interface TreeEntry extends DirectoryEntry {
-  match?: Pick<TextHit, "line" | "text" | "at" | "length">;
-  depth: number;
-  parentPath?: string;
-  state: "collapsed" | "expanded";
-  children?: TreeEntry[];
-}
+import { readDirectory } from "../core/files";
+import type { DirectoryEntry } from "../core/types";
+import type { TreeEntry } from "./types";
 
 function listing(children: TreeEntry[]): string {
   return children.map((child) => `${child.path}\0${child.kind}`).join("\n");

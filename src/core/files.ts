@@ -1,6 +1,7 @@
 import { constants, type Stats } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { extname, join, relative } from "node:path";
+import type { DirectoryEntry, Document, ImageFile } from "./types";
 
 const MAX_FILE_BYTES = 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -8,24 +9,6 @@ const BINARY_PROBE_BYTES = 8192;
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp"]);
 const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const nameCollator = new Intl.Collator();
-
-export interface DirectoryEntry {
-  name: string;
-  path: string;
-  kind: "directory" | "file" | "link" | "other";
-}
-
-export interface Document {
-  path: string;
-  text: string;
-  lineCount: number;
-  truncated?: boolean;
-}
-
-export interface ImageFile {
-  path: string;
-  bytes: Uint8Array;
-}
 
 export function isImagePath(path: string): boolean {
   return IMAGE_EXTENSIONS.has(extname(path).toLowerCase());
@@ -199,4 +182,8 @@ function decodeText(bytes: Buffer): string {
   } catch {
     throw new Error("Only UTF-8 text files are supported.");
   }
+}
+
+export function treeRelative(root: string, path: string): string {
+  return relative(root, path).split("\\").join("/");
 }

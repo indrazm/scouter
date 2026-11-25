@@ -1,17 +1,9 @@
 import { expect, test } from "bun:test";
 import { chmod, rename, rm, stat, symlink, utimes, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import {
-  GitError,
-  changesStamp,
-  closeRepository,
-  listChanges,
-  listMarks,
-  openRepository,
-  readAllPatches,
-  readPatch,
-  type Change,
-} from "../src/diff/git";
+import { GitError, changesStamp, closeRepository, listChanges, listMarks, openRepository } from "../src/diff/git";
+import { readAllPatches, readPatch } from "../src/diff/patch";
+import type { Change } from "../src/diff/types";
 import { createRepository as repository, git, withDirectory } from "./fixtures";
 
 const byPath = (changes: Change[], path: string): Change => {

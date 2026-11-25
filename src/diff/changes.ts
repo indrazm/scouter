@@ -10,9 +10,10 @@ import {
 import { posix } from "node:path";
 import { displayLabel } from "../core/files";
 import { handleListKey } from "../core/keys";
-import type { Change, ChangeKind } from "./git";
-import { scrollbarStyle, styled, type Segment } from "../ui/styled";
+import { scrollbarStyle, styled } from "../ui/styled";
 import { theme, transparent } from "../ui/theme";
+import type { Segment } from "../ui/types";
+import type { Change, ChangeKind } from "./types";
 
 interface ChangeListOptions {
   onSelect: (change: Change | undefined) => void;

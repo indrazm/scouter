@@ -1,17 +1,5 @@
-import { modeOfBackground, type ThemeMode } from "./theme";
-
-export interface SystemTheme {
-  mode: ThemeMode;
-  background?: string;
-}
-
-export interface ThemeSource {
-  readonly themeMode: ThemeMode | null;
-  on(event: "theme_mode", listener: (mode: ThemeMode) => void): unknown;
-  off(event: "theme_mode", listener: (mode: ThemeMode) => void): unknown;
-  clearPaletteCache(): void;
-  getPalette(options: { size: number; timeout: number }): Promise<{ defaultBackground: string | null }>;
-}
+import { modeOfBackground } from "./theme";
+import type { SystemTheme, ThemeMode, ThemeSource } from "./types";
 
 const POLL_MS = 3000;
 const QUERY_TIMEOUT_MS = 500;

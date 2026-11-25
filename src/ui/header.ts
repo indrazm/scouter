@@ -1,11 +1,7 @@
 import { BoxRenderable, TextRenderable, type RenderContext } from "@opentui/core";
-import { styled, type Segment } from "./styled";
+import { styled } from "./styled";
 import { theme } from "./theme";
-
-export interface HeaderBadge {
-  text: string;
-  kind: "pill" | "quiet";
-}
+import type { HeaderBadge, Segment } from "./types";
 
 export class PaneHeader {
   readonly root: BoxRenderable;

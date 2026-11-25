@@ -8,8 +8,8 @@ import {
   theme,
   themeMode,
   tintedBackground,
-  type ThemeMode,
 } from "../src/ui/theme";
+import type { ThemeMode } from "../src/ui/types";
 
 function luminance(hex: string): number {
   const { r, g, b } = RGBA.fromHex(hex);

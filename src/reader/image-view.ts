@@ -1,12 +1,6 @@
-import { ImageRenderable, imageInfo, type ScrollBoxRenderable } from "@opentui/core";
-import type { CliRenderer } from "@opentui/core";
-import type { ImageFile } from "../core/files";
-
-export interface ImageDetails {
-  width: number;
-  height: number;
-  format: string;
-}
+import { ImageRenderable, imageInfo, type CliRenderer, type ScrollBoxRenderable } from "@opentui/core";
+import type { ImageFile } from "../core/types";
+import type { ImageDetails } from "./types";
 
 export function describeImage(bytes: Uint8Array): ImageDetails {
   try {
