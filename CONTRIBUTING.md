@@ -32,7 +32,7 @@ A new behavior gets a test, using real temporary git repositories and OpenTUI's 
 ## In the same change
 
 - **A decision.** If you made a real choice, add `docs/decision/NNNN-name.md` (next number, Context / Decision / Consequences, short).
-- **The keys.** If a user sees or types something new, update the README's key table and `src/keymap.ts`, and the in-app hints behind `?`.
+- **The keys.** If a user sees or types something new, update the README's key table and `src/core/keymap.ts`, and the in-app hints behind `?`.
 
 ## Never break these
 
