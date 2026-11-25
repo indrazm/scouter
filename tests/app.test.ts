@@ -681,3 +681,35 @@ test("dismissing a search while previewing Markdown clears source match highligh
     await waitForText(setup, "1  # Heading");
     await waitForFrame(setup, () => markedWords(setup).length === 0, "match highlight cleared in source");
   }));
+
+test("draws a half-block scrollbar only when content overflows and moves it on scroll", () =>
+  withDirectory(async (directory) => {
+    const shortPath = join(directory, "short.txt");
+    const longPath = join(directory, "long.txt");
+    await writeFile(shortPath, "one\ntwo\n");
+    await writeFile(longPath, `${Array.from({ length: 80 }, (_, index) => `line ${index + 1}`).join("\n")}\n`);
+    await using setup = await createTestRenderer({ width: 90, height: 14 });
+    await using app = new ScouterApp(setup.renderer);
+    await app.open(shortPath);
+    await waitForText(setup, "2 lines");
+    expect(setup.captureCharFrame()).not.toMatch(/[▐▝▗]/);
+
+    await app.open(longPath);
+    await waitForText(setup, "80 lines");
+    const thumbRows = (): number[] => {
+      const rows: number[] = [];
+      for (const [index, line] of setup.captureCharFrame().split("\n").entries()) {
+        if (/[▐▝▗]/.test(line)) rows.push(index);
+      }
+      return rows;
+    };
+    const atTop = thumbRows();
+    expect(atTop.length).toBeGreaterThan(0);
+    expect(setup.captureCharFrame()).not.toContain("█");
+
+    setup.mockInput.pressKey("G", { shift: true });
+    await waitForText(setup, "Bot");
+    const atBottom = thumbRows();
+    expect(atBottom.length).toBeGreaterThan(0);
+    expect(atBottom[0]!).toBeGreaterThan(atTop[0]!);
+  }));

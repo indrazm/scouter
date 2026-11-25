@@ -1,10 +1,56 @@
-import { StyledText, bg as background, bold as emphasis, fg as foreground, type TextChunk } from "@opentui/core";
+import {
+  RGBA,
+  StyledText,
+  bg as background,
+  bold as emphasis,
+  fg as foreground,
+  type OptimizedBuffer,
+  type ScrollBoxRenderable,
+  type TextChunk,
+} from "@opentui/core";
 import { theme } from "./theme";
 import type { Segment } from "./types";
 
-export function scrollbarStyle(): { trackOptions: { backgroundColor: string; foregroundColor: string } } {
-  return { trackOptions: { backgroundColor: "transparent", foregroundColor: theme.muted } };
+let cachedScrollbarColor: { hex: string; rgba: RGBA } | undefined;
+
+function scrollbarColor(): RGBA {
+  if (cachedScrollbarColor?.hex !== theme.muted) {
+    cachedScrollbarColor = { hex: theme.muted, rgba: RGBA.fromHex(theme.muted) };
+  }
+
+  return cachedScrollbarColor.rgba;
 }
+
+export function scrollbarStyle(): { trackOptions: { backgroundColor: string; foregroundColor: string } } {
+  return { trackOptions: { backgroundColor: "transparent", foregroundColor: "transparent" } };
+}
+
+function renderScrollbar(this: ScrollBoxRenderable, buffer: OptimizedBuffer): void {
+  const bar = this.verticalScrollBar;
+
+  if (!bar.visible || bar.height <= 0 || bar.width <= 0 || bar.scrollSize <= bar.viewportSize) return;
+
+  const virtualTrack = bar.height * 2;
+  const range = bar.scrollSize - bar.viewportSize;
+  const ratio = Math.max(0, Math.min(1, bar.scrollPosition / range));
+  const thumbSize = Math.max(
+    Math.min(2, virtualTrack),
+    Math.min(virtualTrack, Math.round((bar.viewportSize / bar.scrollSize) * virtualTrack)),
+  );
+  const thumbStart = Math.round(ratio * (virtualTrack - thumbSize));
+  const thumbEnd = thumbStart + thumbSize;
+  const color = scrollbarColor();
+
+  for (let row = 0; row < bar.height; row += 1) {
+    const top = thumbStart <= row * 2 && thumbEnd > row * 2;
+    const bottom = thumbStart <= row * 2 + 1 && thumbEnd > row * 2 + 1;
+    const glyph = top && bottom ? "▐" : top ? "▝" : bottom ? "▗" : undefined;
+
+    if (glyph) buffer.drawText(glyph, bar.x, bar.y + row, color);
+  }
+}
+
+export const paintScrollbar = renderScrollbar;
 
 export function styled(segments: Segment[]): StyledText {
   const chunks: TextChunk[] = [];

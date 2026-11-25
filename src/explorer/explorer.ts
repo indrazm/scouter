@@ -9,7 +9,7 @@ import {
 import { extname, posix } from "node:path";
 import { displayLabel } from "../core/files";
 import { handleListKey } from "../core/keys";
-import { scrollbarStyle, styled } from "../ui/styled";
+import { paintScrollbar, scrollbarStyle, styled } from "../ui/styled";
 import { theme, transparent } from "../ui/theme";
 import type { Segment } from "../ui/types";
 import type { RowStyle, TreeEntry } from "./types";
@@ -126,6 +126,7 @@ export class FileExplorer extends ScrollBoxRenderable {
       scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: scrollbarStyle(),
+      renderAfter: paintScrollbar,
     });
     this.onActivate = options.onActivate;
   }

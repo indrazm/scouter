@@ -149,11 +149,15 @@ test("the reader header, footer and scrollbar are drawn again in the new colours
     await app.open(path);
     await waitForText(setup, "80 lines");
     expect(textColorOf(setup, "read-only")).toEqual(channels(palettes.dark.dim));
-    expect(textColorOf(setup, "█") ?? textColorOf(setup, "▀")).toEqual(channels(palettes.dark.muted));
+    expect(textColorOf(setup, "▐") ?? textColorOf(setup, "▝") ?? textColorOf(setup, "▗")).toEqual(
+      channels(palettes.dark.muted),
+    );
 
     await goLight(setup, "read-only", "dim");
     expect(textColorOf(setup, "80 lines")).toEqual(channels(palettes.light.muted));
-    expect(textColorOf(setup, "█") ?? textColorOf(setup, "▀")).toEqual(channels(palettes.light.muted));
+    expect(textColorOf(setup, "▐") ?? textColorOf(setup, "▝") ?? textColorOf(setup, "▗")).toEqual(
+      channels(palettes.light.muted),
+    );
     const tint = tintedBackground(undefined);
     const status = rowBackgrounds(setup, 12);
     expect(status.some((background) => background.join() === channels(tint).join())).toBe(true);

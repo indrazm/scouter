@@ -8,7 +8,7 @@ import { BinaryView } from "../reader/binary-view";
 import { CodeView } from "../reader/code-view";
 import { ImageView } from "../reader/image-view";
 import type { Jump } from "../reader/types";
-import { scrollbarStyle } from "../ui/styled";
+import { paintScrollbar, scrollbarStyle } from "../ui/styled";
 import type { DocumentInfo } from "../ui/types";
 import { createWelcome } from "../ui/welcome";
 import type { ReaderPaneOptions, Shown } from "./types";
@@ -38,6 +38,7 @@ export class ReaderPane {
       scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: scrollbarStyle(),
+      renderAfter: paintScrollbar,
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => options.onPositionChange() },
       onSizeChange: () => {

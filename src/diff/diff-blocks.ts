@@ -11,7 +11,7 @@ import {
 import { posix } from "node:path";
 import { displayLabel } from "../core/files";
 import { languageFor } from "../reader/code-view";
-import { scrollbarStyle, styled } from "../ui/styled";
+import { paintScrollbar, scrollbarStyle, styled } from "../ui/styled";
 import { theme, transparent } from "../ui/theme";
 import type { DiffScope, Segment } from "../ui/types";
 import { countSegments, indexMark, statusOf } from "./changes";
@@ -153,6 +153,7 @@ export class DiffBlocks {
       scrollY: true,
       contentOptions: { flexDirection: "column" },
       scrollbarOptions: scrollbarStyle(),
+      renderAfter: paintScrollbar,
       horizontalScrollbarOptions: { visible: false },
       verticalScrollbarOptions: { onChange: () => this.options.onLayout() },
     });

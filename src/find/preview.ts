@@ -3,7 +3,7 @@ import { languageFor, type CodeView } from "../reader/code-view";
 import { readDocument } from "../core/files";
 import type { Document } from "../core/types";
 import { PLAIN_FILETYPE, markMatches } from "../reader/match-style";
-import { scrollbarStyle } from "../ui/styled";
+import { paintScrollbar, scrollbarStyle } from "../ui/styled";
 import { theme } from "../ui/theme";
 
 function targetLine(): { gutter: string; content: string } {
@@ -33,6 +33,7 @@ export class HitPreview {
       scrollY: true,
       contentOptions: { flexDirection: "column", width: "auto" },
       scrollbarOptions: scrollbarStyle(),
+      renderAfter: paintScrollbar,
       horizontalScrollbarOptions: { visible: false },
       onSizeChange: () => this.scrollToLine(),
     });
