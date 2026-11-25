@@ -3,8 +3,8 @@ import { BoxRenderable, CodeRenderable } from "@opentui/core";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
-import { ScouterApp } from "../src/app";
-import { brightness, palettes, setThemeMode, theme, tintedBackground, type ThemeMode } from "../src/theme";
+import { ScouterApp } from "../src/app/app";
+import { brightness, palettes, setThemeMode, theme, tintedBackground, type ThemeMode } from "../src/ui/theme";
 import {
   borderColorOf,
   channels,

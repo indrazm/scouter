@@ -8,11 +8,11 @@ import {
   type TextOptions,
 } from "@opentui/core";
 import { posix } from "node:path";
-import { displayLabel } from "./files";
-import { handleListKey } from "./keys";
+import { displayLabel } from "../core/files";
+import { handleListKey } from "../core/keys";
 import type { Change, ChangeKind } from "./git";
-import { scrollbarStyle, styled, type Segment } from "./styled";
-import { theme, transparent } from "./theme";
+import { scrollbarStyle, styled, type Segment } from "../ui/styled";
+import { theme, transparent } from "../ui/theme";
 
 interface ChangeListOptions {
   onSelect: (change: Change | undefined) => void;

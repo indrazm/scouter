@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isTyped } from "../src/keys";
+import { isTyped } from "../src/core/keys";
 
 const press = (sequence: string, modifiers: { ctrl?: boolean; meta?: boolean } = {}) => ({
   sequence,

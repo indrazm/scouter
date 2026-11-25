@@ -3,7 +3,7 @@ import { ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
+import { ScouterApp } from "../src/app/app";
 import { waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 function reader(setup: { renderer: { root: { findDescendantById(id: string): unknown } } }): ScrollBoxRenderable {

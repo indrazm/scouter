@@ -8,7 +8,7 @@ import {
   searchText,
   type IndexedEntry,
   type TextProgress,
-} from "../src/search";
+} from "../src/find/search";
 import { withDirectory } from "./fixtures";
 
 const entry = (relative: string, kind: IndexedEntry["kind"] = "file"): IndexedEntry => ({

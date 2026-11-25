@@ -3,7 +3,7 @@ import { BoxRenderable, CodeRenderable, RGBA, ScrollBoxRenderable } from "@opent
 import { createTestRenderer, MouseButtons, type TestRendererSetup } from "@opentui/core/testing";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
+import { ScouterApp } from "../src/app/app";
 import { backgroundIntentsFrom, waitForText, withDirectory } from "./fixtures";
 
 function explorerCell(setup: TestRendererSetup, name: string): [number, number] {

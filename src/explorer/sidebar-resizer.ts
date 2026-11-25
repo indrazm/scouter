@@ -1,5 +1,5 @@
 import { BoxRenderable, MouseButton, type CliRenderer, type MouseEvent } from "@opentui/core";
-import { theme, transparent } from "./theme";
+import { theme, transparent } from "../ui/theme";
 
 const MIN_SIDEBAR_COLUMNS = 24;
 const MIN_READER_COLUMNS = 28;

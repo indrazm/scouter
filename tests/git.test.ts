@@ -11,7 +11,7 @@ import {
   readAllPatches,
   readPatch,
   type Change,
-} from "../src/git";
+} from "../src/diff/git";
 import { createRepository as repository, git, withDirectory } from "./fixtures";
 
 const byPath = (changes: Change[], path: string): Change => {

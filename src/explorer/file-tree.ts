@@ -1,7 +1,7 @@
 import { realpath } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, sep } from "node:path";
-import { readDirectory, type DirectoryEntry } from "./files";
-import type { TextHit } from "./search";
+import { readDirectory, type DirectoryEntry } from "../core/files";
+import type { TextHit } from "../find/search";
 
 export interface TreeEntry extends DirectoryEntry {
   match?: Pick<TextHit, "line" | "text" | "at" | "length">;

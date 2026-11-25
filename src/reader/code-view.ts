@@ -12,10 +12,10 @@ import {
 } from "@opentui/core";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { Document } from "./files";
+import type { Document } from "../core/files";
 import { extraLanguages, registerGrammars } from "./grammars";
 import { MATCH_GROUP, PLAIN_FILETYPE, markMatches, matchStyle } from "./match-style";
-import { theme } from "./theme";
+import { theme } from "../ui/theme";
 
 const supportedLanguages = new Set([
   "javascript",

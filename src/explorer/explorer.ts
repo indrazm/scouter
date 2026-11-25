@@ -8,10 +8,10 @@ import {
 } from "@opentui/core";
 import { extname, posix } from "node:path";
 import type { TreeEntry } from "./file-tree";
-import { displayLabel } from "./files";
-import { handleListKey } from "./keys";
-import { scrollbarStyle, styled, type Segment } from "./styled";
-import { theme, transparent } from "./theme";
+import { displayLabel } from "../core/files";
+import { handleListKey } from "../core/keys";
+import { scrollbarStyle, styled, type Segment } from "../ui/styled";
+import { theme, transparent } from "../ui/theme";
 
 interface ExplorerOptions {
   onActivate: () => void;

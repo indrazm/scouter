@@ -3,8 +3,8 @@ import { ScrollBoxRenderable } from "@opentui/core";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
-import { ChangeList } from "../src/changes";
+import { ScouterApp } from "../src/app/app";
+import { ChangeList } from "../src/diff/changes";
 import { createRepository, git, waitForFrame, waitForText, watchBorder, withDirectory } from "./fixtures";
 
 const numbered = (count: number, replace: Record<number, string> = {}): string =>

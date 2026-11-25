@@ -1,5 +1,5 @@
 import { relative } from "node:path";
-import { isImagePath, readDirectoryRaw, readDocument, type DirectoryEntry } from "./files";
+import { isImagePath, readDirectoryRaw, readDocument, type DirectoryEntry } from "../core/files";
 
 export const MAX_INDEXED_ENTRIES = 20_000;
 export const MAX_MATCHES = 200;

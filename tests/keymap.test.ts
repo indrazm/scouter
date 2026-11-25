@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
-import { KEY_COLUMN, keyListText, keySections } from "../src/keymap";
+import { KEY_COLUMN, keyListText, keySections } from "../src/core/keymap";
 
 const documented = new Set(keySections.flatMap(([, rows]) => rows.flatMap(([keys]) => keys.toLowerCase().split(" "))));
 

@@ -10,9 +10,9 @@ import {
 } from "@opentui/core";
 import { basename, join, posix } from "node:path";
 import { ChangeList, countSegments, indexMark, statusOf } from "./changes";
-import { languageFor } from "./code-view";
-import { describeError, displayLabel } from "./files";
-import type { DiffScope } from "./footer";
+import { languageFor } from "../reader/code-view";
+import { describeError, displayLabel } from "../core/files";
+import type { DiffScope } from "../ui/footer";
 import {
   GitError,
   changesStamp,
@@ -27,8 +27,8 @@ import {
   type Patch,
   type Repository,
 } from "./git";
-import { scrollbarStyle, styled, type Segment } from "./styled";
-import { theme, transparent } from "./theme";
+import { scrollbarStyle, styled, type Segment } from "../ui/styled";
+import { theme, transparent } from "../ui/theme";
 
 export type DiffView = "unified" | "split";
 export type HunkJumpResult = "moved" | "first" | "last" | "none";

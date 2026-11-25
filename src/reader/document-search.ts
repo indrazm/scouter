@@ -1,6 +1,6 @@
 import type { KeyEvent } from "@opentui/core";
-import type { Footer } from "./footer";
-import { isPlain, isTyped } from "./keys";
+import type { Footer } from "../ui/footer";
+import { isPlain, isTyped } from "../core/keys";
 
 interface DocumentSearchHost {
   footer: Footer;

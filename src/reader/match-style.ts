@@ -1,5 +1,5 @@
 import type { OnHighlightCallback } from "@opentui/core";
-import { theme } from "./theme";
+import { theme } from "../ui/theme";
 
 export const MATCH_GROUP = "search.match";
 export function matchStyle(): { fg: string; bg: string; bold: boolean } {

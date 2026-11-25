@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
-import { ScouterApp } from "../src/app";
+import { ScouterApp } from "../src/app/app";
 import { createRepository, markedWords, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 function footer(setup: TestRendererSetup): { status: string; hints: string } {

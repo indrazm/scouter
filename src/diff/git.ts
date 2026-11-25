@@ -2,7 +2,7 @@ import { rmSync } from "node:fs";
 import { copyFile, lstat, mkdtemp, rm, stat, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { displayText, readDocument } from "./files";
+import { displayText, readDocument } from "../core/files";
 
 const LIST_LIMIT_BYTES = 8 * 1024 * 1024;
 const PATCH_LIMIT_BYTES = 1024 * 1024;

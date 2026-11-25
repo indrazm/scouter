@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchRanges } from "../src/match-style";
+import { matchRanges } from "../src/reader/match-style";
 
 test("every occurrence is found, ignoring case, without overlapping", () => {
   expect(matchRanges("Needle and needle, NEEDLE", "needle")).toEqual([

@@ -3,9 +3,9 @@ import { CodeRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
-import { copiedSummary } from "../src/clipboard";
-import { palettes } from "../src/theme";
+import { ScouterApp } from "../src/app/app";
+import { copiedSummary } from "../src/core/clipboard";
+import { palettes } from "../src/ui/theme";
 import { hasBackground, waitForText, withDirectory } from "./fixtures";
 
 test("copiedSummary describes single-line and multi-line selections cleanly", () => {

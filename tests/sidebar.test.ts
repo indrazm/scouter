@@ -3,7 +3,7 @@ import { BoxRenderable, RGBA } from "@opentui/core";
 import { createTestRenderer, MouseButtons } from "@opentui/core/testing";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
+import { ScouterApp } from "../src/app/app";
 import { backgroundIntentsFrom, withDirectory } from "./fixtures";
 
 test("drags the divider without changing focus or selecting text and restores the chosen width after terminal resize", () =>

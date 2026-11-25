@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer, type TestRendererSetup } from "@opentui/core/testing";
-import { ScouterApp } from "../src/app";
-import { JumpHistory } from "../src/jump-history";
+import { ScouterApp } from "../src/app/app";
+import { JumpHistory } from "../src/reader/jump-history";
 import { createRepository, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 function footer(setup: TestRendererSetup): { status: string; hints: string } {

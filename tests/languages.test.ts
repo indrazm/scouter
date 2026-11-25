@@ -3,8 +3,8 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
-import { ScouterApp } from "../src/app";
-import { languageFor } from "../src/code-view";
+import { ScouterApp } from "../src/app/app";
+import { languageFor } from "../src/reader/code-view";
 import manifest from "../grammars/manifest.json";
 import { waitForFrame, withDirectory } from "./fixtures";
 

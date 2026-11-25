@@ -1,6 +1,6 @@
 import { BoxRenderable, TextRenderable, type CliRenderer } from "@opentui/core";
 import { homedir } from "node:os";
-import { displayLabel } from "./files";
+import { displayLabel } from "../core/files";
 import { fitEnd, fitStart, segmentsWidth, styled, type Segment } from "./styled";
 import { theme } from "./theme";
 

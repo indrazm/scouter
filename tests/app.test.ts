@@ -3,9 +3,9 @@ import { BoxRenderable, CodeRenderable, RGBA, ScrollBoxRenderable } from "@opent
 import { createTestRenderer } from "@opentui/core/testing";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { ScouterApp } from "../src/app";
-import { FileExplorer } from "../src/explorer";
-import { theme } from "../src/theme";
+import { ScouterApp } from "../src/app/app";
+import { FileExplorer } from "../src/explorer/explorer";
+import { theme } from "../src/ui/theme";
 import {
   borderColorOf,
   createRepository,

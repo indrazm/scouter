@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { EventEmitter } from "node:events";
-import { SystemThemeWatcher, type SystemTheme, type ThemeSource } from "../src/system-theme";
-import type { ThemeMode } from "../src/theme";
+import { SystemThemeWatcher, type SystemTheme, type ThemeSource } from "../src/ui/system-theme";
+import type { ThemeMode } from "../src/ui/theme";
 
 class FakeTerminal implements ThemeSource {
   themeMode: ThemeMode | null = null;

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdir, readFile, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readDirectory, readDocument } from "../src/files";
+import { readDirectory, readDocument } from "../src/core/files";
 import { withDirectory } from "./fixtures";
 
 test("leaves out version-control folders and operating-system clutter but keeps other dotfiles", () =>

@@ -2,8 +2,8 @@ import { realpath } from "node:fs/promises";
 import { posix, relative } from "node:path";
 import { statusOf } from "./changes";
 import { closeRepository, listMarks, openRepository, type Change, type Repository } from "./git";
-import type { RowStyle } from "./explorer";
-import { theme } from "./theme";
+import type { RowStyle } from "../explorer/explorer";
+import { theme } from "../ui/theme";
 
 export class GitMarks {
   private readonly changes = new Map<string, Pick<Change, "path" | "kind">>();

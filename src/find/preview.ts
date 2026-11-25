@@ -1,10 +1,10 @@
 import { CodeRenderable, LineNumberRenderable, ScrollBoxRenderable, type CliRenderer } from "@opentui/core";
-import type { CodeView } from "./code-view";
-import { languageFor } from "./code-view";
-import { readDocument, type Document } from "./files";
-import { PLAIN_FILETYPE, markMatches } from "./match-style";
-import { scrollbarStyle } from "./styled";
-import { theme } from "./theme";
+import type { CodeView } from "../reader/code-view";
+import { languageFor } from "../reader/code-view";
+import { readDocument, type Document } from "../core/files";
+import { PLAIN_FILETYPE, markMatches } from "../reader/match-style";
+import { scrollbarStyle } from "../ui/styled";
+import { theme } from "../ui/theme";
 
 function targetLine(): { gutter: string; content: string } {
   return { gutter: theme.targetGutter, content: theme.targetBg };

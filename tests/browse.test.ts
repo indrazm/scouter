@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
-import { ScouterApp } from "../src/app";
-import { openRepository, listIgnored } from "../src/git";
-import { palettes } from "../src/theme";
+import { ScouterApp } from "../src/app/app";
+import { openRepository, listIgnored } from "../src/diff/git";
+import { palettes } from "../src/ui/theme";
 import { channels, createRepository, textColorOf, waitForFrame, waitForText, withDirectory } from "./fixtures";
 
 const FAST_POLL = { browsePollMs: 40 };

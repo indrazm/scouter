@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BoxRenderable, RGBA, type Renderable } from "@opentui/core";
 import type { TestRendererSetup } from "@opentui/core/testing";
-import { theme } from "../src/theme";
+import { theme } from "../src/ui/theme";
 
 export function watchBorder(root: Renderable, id: string, writes: string[]): void {
   const panel = root.findDescendantById(id);

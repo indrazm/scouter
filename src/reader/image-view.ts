@@ -1,6 +1,6 @@
 import { ImageRenderable, imageInfo, type ScrollBoxRenderable } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
-import type { ImageFile } from "./files";
+import type { ImageFile } from "../core/files";
 
 export interface ImageDetails {
   width: number;

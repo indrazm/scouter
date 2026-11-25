@@ -8,26 +8,26 @@ import {
 } from "@opentui/core";
 import { stat } from "node:fs/promises";
 import { basename, dirname, posix, resolve } from "node:path";
-import { BrowseWatcher, type RefreshOptions } from "./browse-watcher";
-import { copiedSummary, copyToClipboard, type ClipboardWriter } from "./clipboard";
-import { CodeView, languageFor } from "./code-view";
-import { DiffScreen, MIN_SPLIT_COLUMNS, type DiffState } from "./diff-screen";
-import { DocumentSearch } from "./document-search";
-import { FileExplorer, type RowStyle } from "./explorer";
-import { FileFinder } from "./file-finder";
-import { FileTree, type TreeEntry } from "./file-tree";
-import { Footer } from "./footer";
-import { PaneHeader, type HeaderBadge } from "./header";
-import { boundaryOf, isPlain, isQuit, scrollByKey } from "./keys";
-import { GitMarks, treeRelative } from "./marks";
-import { HitPreview } from "./preview";
-import { JumpHistory, type Jump } from "./jump-history";
-import { createHelp } from "./help";
-import { SidebarResizer } from "./sidebar-resizer";
-import { scrollbarStyle, styled } from "./styled";
-import { SystemThemeWatcher, type SystemTheme } from "./system-theme";
-import { setThemeMode, theme, tintedBackground } from "./theme";
-import { createWelcome } from "./welcome";
+import { BrowseWatcher, type RefreshOptions } from "../explorer/browse-watcher";
+import { copiedSummary, copyToClipboard, type ClipboardWriter } from "../core/clipboard";
+import { CodeView, languageFor } from "../reader/code-view";
+import { DiffScreen, MIN_SPLIT_COLUMNS, type DiffState } from "../diff/diff-screen";
+import { DocumentSearch } from "../reader/document-search";
+import { FileExplorer, type RowStyle } from "../explorer/explorer";
+import { FileFinder } from "../find/file-finder";
+import { FileTree, type TreeEntry } from "../explorer/file-tree";
+import { Footer } from "../ui/footer";
+import { PaneHeader, type HeaderBadge } from "../ui/header";
+import { boundaryOf, isPlain, isQuit, scrollByKey } from "../core/keys";
+import { GitMarks, treeRelative } from "../diff/marks";
+import { HitPreview } from "../find/preview";
+import { JumpHistory, type Jump } from "../reader/jump-history";
+import { createHelp } from "../ui/help";
+import { SidebarResizer } from "../explorer/sidebar-resizer";
+import { scrollbarStyle, styled } from "../ui/styled";
+import { SystemThemeWatcher, type SystemTheme } from "../ui/system-theme";
+import { setThemeMode, theme, tintedBackground } from "../ui/theme";
+import { createWelcome } from "../ui/welcome";
 import {
   BinaryFileError,
   describeError,
@@ -40,9 +40,9 @@ import {
   readImage,
   type Document,
   type ImageFile,
-} from "./files";
-import { ImageView, describeImage, type ImageDetails } from "./image-view";
-import { GitError } from "./git";
+} from "../core/files";
+import { ImageView, describeImage, type ImageDetails } from "../reader/image-view";
+import { GitError } from "../diff/git";
 
 const DIFF_POLL_MS = 2000;
 const MAX_COUNT = 99_999_999;

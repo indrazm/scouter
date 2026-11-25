@@ -1,7 +1,7 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
-import { describeError } from "./files";
-import { keyListText } from "./keymap";
+import { describeError } from "./core/files";
+import { keyListText } from "./core/keymap";
 import { version } from "../package.json";
 
 const help = `scouter — a minimal read-only terminal file viewer
@@ -44,7 +44,7 @@ async function main(): Promise<void> {
   if (!metadata.isFile() && !metadata.isDirectory()) throw new Error("Only files and directories can be opened.");
 
   const { createCliRenderer, RGBA } = await import("@opentui/core");
-  const { ScouterApp } = await import("./app");
+  const { ScouterApp } = await import("./app/app");
   const renderer = await createCliRenderer({
     exitOnCtrlC: true,
     screenMode: "alternate-screen",

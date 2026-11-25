@@ -9,7 +9,7 @@ import {
   themeMode,
   tintedBackground,
   type ThemeMode,
-} from "../src/theme";
+} from "../src/ui/theme";
 
 function luminance(hex: string): number {
   const { r, g, b } = RGBA.fromHex(hex);
