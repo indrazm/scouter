@@ -1,4 +1,11 @@
-import { BoxRenderable, ScrollBoxRenderable, type CliRenderer, type KeyEvent, type Selection } from "@opentui/core";
+import {
+  BoxRenderable,
+  ScrollBoxRenderable,
+  type CliRenderer,
+  type KeyEvent,
+  type PasteEvent,
+  type Selection,
+} from "@opentui/core";
 import { stat } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
 import { copiedSummary, copyToClipboard } from "../core/clipboard";
@@ -30,6 +37,10 @@ import { describeImage } from "../reader/image-view";
 import { JumpHistory } from "../reader/jump-history";
 import { ReaderMotion } from "../reader/reader-motion";
 import type { ImageDetails } from "../reader/types";
+import { CommentBoard } from "../review/comment-board";
+import { CommentPrompt } from "../review/comment-prompt";
+import { ReviewComments } from "../review/comments";
+import type { CommentTarget, ReviewComment } from "../review/types";
 import { Footer } from "../ui/footer";
 import { PaneHeader } from "../ui/header";
 import { createHelp } from "../ui/help";
@@ -66,6 +77,10 @@ export class ScouterApp {
   private readonly watcher: BrowseWatcher;
   private readonly systemTheme: SystemThemeWatcher;
   private readonly marks = new GitMarks();
+  private readonly comments = new ReviewComments();
+  private readonly commentPrompt: CommentPrompt;
+  private readonly commentBoard: CommentBoard;
+  private readonly pasteDecoder = new TextDecoder();
   private readonly jumps = new JumpHistory();
   private mode: "browse" | "diff" = "browse";
   private paneBeforeDiff: "list" | "reader" = "list";
@@ -122,15 +137,40 @@ export class ScouterApp {
       onPositionChange: () => this.updatePosition(),
     });
     this.updateViewerBadges();
-    this.footer = new Footer(renderer);
+    this.footer = new Footer(renderer, () => this.openCommentsBoard());
+    this.commentPrompt = new CommentPrompt({
+      footer: this.footer,
+      draw: (target, text, cursor) => this.diffScreen.showCommentComposer(target, text, cursor),
+      hide: () => this.diffScreen.hideCommentComposer(),
+      save: (target, text) => this.saveComment(target, text),
+    });
     this.diffScreen = new DiffScreen(renderer, {
       syntax: this.readerPane.syntax,
+      comments: this.comments,
+      onComment: (target) => this.commentOn(target),
+      onCommentMissing: () => this.footer.setMessage("That line is no longer in the diff."),
       onChange: this.onDiffChange,
       onActivate: this.onDiffActivate,
       onFocusList: this.onDiffFocusList,
       onLayout: () => this.updatePosition(),
       pollMs: options.diffPollMs ?? DIFF_POLL_MS,
     });
+    this.commentBoard = new CommentBoard(
+      renderer,
+      {
+        comments: this.comments,
+        footer: this.footer,
+        isOutdated: (comment) => this.diffScreen.isOutdated(comment),
+        onJump: (comment) => this.jumpToComment(comment),
+        onEdit: (comment) => this.editCommentFromBoard(comment),
+        onCopy: (clearAfter) => this.copyComments(clearAfter),
+        onChange: () => {
+          this.diffScreen.repaintComments();
+          this.onDiffChange();
+        },
+      },
+      this.helpBackground,
+    );
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
     this.finder = new FileFinder(renderer, {
@@ -184,8 +224,10 @@ export class ScouterApp {
     panes.add(this.viewerPanel);
     layout.add(panes);
     layout.add(this.footer.root);
+    layout.add(this.commentBoard.root);
     renderer.root.add(layout);
     renderer.keyInput.on("keypress", this.onKeyPress);
+    renderer.keyInput.on("paste", this.onPaste);
     renderer.on("focused_renderable", this.updateFocus);
     renderer.on("selection", this.onSelection);
     renderer.once("destroy", this.dispose);
@@ -210,6 +252,7 @@ export class ScouterApp {
     this.browserHeader.restyle();
     this.viewerHeader.restyle();
     this.footer.restyle();
+    this.commentBoard.restyle(tint);
     this.rebuildHelp(tint);
     this.focusPane = undefined;
     this.updateFocus();
@@ -465,13 +508,16 @@ export class ScouterApp {
 
     this.updateViewerBadges(diffState);
 
-    if (diffState) this.footer.setDiff(diffFooterFor(diffState));
+    if (diffState) this.footer.setDiff(diffFooterFor(diffState, this.comments.size));
   }
 
   private readonly onDiffChange = (): void => {
+    if (!this.diffScreen.showingDiff) this.commentPrompt.cancel();
+
     this.updateChrome();
     this.updatePosition();
     this.updateFocus();
+    this.commentBoard.refresh();
     this.renderer.requestRender();
   };
 
@@ -557,6 +603,8 @@ export class ScouterApp {
   }
 
   private leaveDiff(): void {
+    this.commentPrompt.cancel();
+    this.commentBoard.close();
     this.mode = "browse";
     this.diffScreen.list.visible = false;
     this.diffScreen.body.visible = false;
@@ -730,10 +778,21 @@ export class ScouterApp {
     this.openSelected("toggle");
   };
 
+  private readonly onPaste = (event: PasteEvent): void => {
+    if (this.commentPrompt.handlePaste(this.pasteDecoder.decode(event.bytes))) event.preventDefault();
+  };
+
   private readonly onKeyPress = (key: KeyEvent): void => {
     this.viewerHeader.setNotice(undefined);
 
-    if (this.finder.handleKey(key) || this.search.handleKey(key)) return;
+    if (
+      this.finder.handleKey(key) ||
+      this.search.handleKey(key) ||
+      this.commentPrompt.handleKey(key) ||
+      this.commentBoard.handleKey(key)
+    ) {
+      return;
+    }
 
     const afterZ = this.motion.consumeZ();
 
@@ -778,7 +837,8 @@ export class ScouterApp {
       return () => this.sidebar.nudge(key.name === "left" ? "left" : "right");
     }
 
-    const typing = this.finder.active || this.search.prompting;
+    const typing =
+      this.finder.active || this.search.prompting || this.commentPrompt.prompting || this.commentBoard.visible;
 
     if (!typing && key.ctrl && !key.meta && key.name === "o") return () => void this.jump("back");
 
@@ -843,10 +903,10 @@ export class ScouterApp {
     return this.browser.selected()?.path;
   }
 
-  private async writeClipboard(text: string, summary: string): Promise<void> {
+  private async writeClipboard(text: string, summary: string): Promise<boolean> {
     const ok = await this.copyWriter(text);
 
-    if (this.renderer.isDestroyed) return;
+    if (this.renderer.isDestroyed) return false;
 
     clearTimeout(this.copyNoticeTimer);
     this.footer.setMessage(ok ? summary : "Could not copy to clipboard.", !ok);
@@ -857,6 +917,8 @@ export class ScouterApp {
       }, 2000);
       this.copyNoticeTimer.unref?.();
     }
+
+    return ok;
   }
 
   private switchPane(): void {
@@ -875,6 +937,7 @@ export class ScouterApp {
     else if (key.name === "x") this.diffScreen.toggleContext();
     else if (key.name === "r") void this.loadDiff(() => this.onDiffChange());
     else if (key.name === "o") void this.openChanged();
+    else if (key.name === "e") this.openCommentsBoard();
     else if ((key.name === "n" && !key.shift) || key.sequence === "]") this.stepHunk(1);
     else if (key.name === "n" || key.name === "p" || key.sequence === "[") this.stepHunk(-1);
     else return false;
@@ -959,6 +1022,76 @@ export class ScouterApp {
 
     if (edge === "end" && count) this.scrollToLine(count - 1);
     else this.reader.scrollTo(edge === "end" ? Infinity : 0);
+  }
+
+  private commentOn(target: CommentTarget | undefined): void {
+    if (!target) {
+      this.footer.setMessage("Comments need the unified view without wrap.");
+      return;
+    }
+
+    if (this.help?.visible) this.help.visible = false;
+
+    this.commentBoard.close();
+    const exact = this.comments.get(target);
+    const existing =
+      (exact && !this.diffScreen.isOutdated(exact) ? exact : undefined) ??
+      (target.rows.length === 1 && target.rows[0]
+        ? this.comments.findCovering(target.path, target.rows[0], (comment) => !this.diffScreen.isOutdated(comment))
+        : undefined);
+    this.commentPrompt.start(existing ?? target, existing?.text ?? "");
+  }
+
+  private openCommentsBoard(): void {
+    if (this.mode !== "diff") return;
+
+    if (this.help?.visible) this.help.visible = false;
+
+    this.commentPrompt.cancel();
+    this.commentBoard.open();
+  }
+
+  private jumpToComment(comment: ReviewComment): void {
+    if (!this.diffScreen.jumpToComment(comment)) {
+      this.footer.setMessage("That line is no longer in the diff.");
+    }
+  }
+
+  private editCommentFromBoard(comment: ReviewComment): void {
+    this.diffScreen.jumpToComment(comment);
+    this.commentPrompt.start(comment, comment.text);
+  }
+
+  private saveComment(target: CommentTarget, text: string): void {
+    const existed = this.comments.getMatching(target) !== undefined;
+    this.comments.set(target, text);
+    this.diffScreen.repaintComments();
+    this.onDiffChange();
+
+    if (text) this.footer.setMessage(existed ? "Comment updated." : "Comment saved.");
+    else if (existed) this.footer.setMessage("Comment removed.");
+  }
+
+  private async copyComments(clearAfter = false): Promise<boolean> {
+    const snapshot = this.comments.list();
+    const count = snapshot.length;
+
+    if (!count) {
+      this.footer.setMessage("No comments yet. Click a line number in the diff.");
+      return false;
+    }
+
+    const noun = count === 1 ? "comment" : "comments";
+    const summary = clearAfter ? `Copied and cleared ${count} ${noun}.` : `Copied ${count} ${noun}.`;
+    const ok = await this.writeClipboard(this.comments.exportText(snapshot), summary);
+
+    if (ok && clearAfter) {
+      this.comments.deleteMatching(snapshot);
+      this.diffScreen.repaintComments();
+      this.onDiffChange();
+    }
+
+    return ok;
   }
 
   private handleSearchKeyInReader(key: KeyEvent): boolean {
@@ -1048,6 +1181,7 @@ export class ScouterApp {
   private readonly dispose = (): void => {
     clearTimeout(this.copyNoticeTimer);
     this.renderer.keyInput.off("keypress", this.onKeyPress);
+    this.renderer.keyInput.off("paste", this.onPaste);
     this.renderer.off("focused_renderable", this.updateFocus);
     this.renderer.off("selection", this.onSelection);
     this.sidebar.dispose();

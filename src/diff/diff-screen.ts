@@ -8,6 +8,8 @@ import {
 } from "@opentui/core";
 import { basename, join } from "node:path";
 import { describeError } from "../core/files";
+import type { ReviewComments } from "../review/comments";
+import type { CommentTarget, ReviewComment } from "../review/types";
 import { styled } from "../ui/styled";
 import { theme } from "../ui/theme";
 import type { DiffScope } from "../ui/types";
@@ -25,7 +27,10 @@ const MAX_POLL_MS = 30_000;
 
 interface DiffScreenOptions {
   syntax: { style: SyntaxStyle; client: TreeSitterClient };
+  comments: ReviewComments;
   onChange: () => void;
+  onComment: (target: CommentTarget | undefined) => void;
+  onCommentMissing: () => void;
   onActivate: () => void;
   onFocusList: () => void;
   onLayout: () => void;
@@ -90,6 +95,7 @@ export class DiffScreen {
   private activateWhenReady = false;
   private holdScroll = false;
   private jumpAfterLayout?: Change;
+  private jumpCommentAfterLayout?: CommentTarget;
   private watching = false;
   private watchSession = 0;
   private timer?: ReturnType<typeof setTimeout>;
@@ -101,6 +107,7 @@ export class DiffScreen {
     this.list = new ChangeList(context, {
       onSelect: (change) => void this.select(change),
       onActivate: () => this.openSelected(),
+      commentCount: (path) => options.comments.countForPath(path),
     });
     this.body = new BoxRenderable(context, {
       id: "diff-body",
@@ -112,8 +119,11 @@ export class DiffScreen {
     });
     this.blocks = new DiffBlocks(context, {
       syntax: options.syntax,
+      comments: options.comments,
+      isOutdated: (target) => this.isOutdated(target),
       onToggleCollapse: (path) => this.toggleCollapse(path),
       onLayout: () => this.layoutChanged(),
+      onComment: options.onComment,
     });
     this.scroller = this.blocks.scroller;
     this.message = new BoxRenderable(context, {
@@ -237,6 +247,7 @@ export class DiffScreen {
     this.pending = false;
     this.activateWhenReady = false;
     this.jumpAfterLayout = undefined;
+    this.jumpCommentAfterLayout = undefined;
   }
 
   async close(): Promise<void> {
@@ -254,6 +265,7 @@ export class DiffScreen {
     this.patchStamp = "";
     this.request += 1;
     this.activateWhenReady = false;
+    this.jumpCommentAfterLayout = undefined;
 
     if (this.scope === "all") {
       this.jumpAfterLayout = this.selected;
@@ -292,6 +304,7 @@ export class DiffScreen {
     this.patchStamp = "";
     this.request += 1;
     this.activateWhenReady = false;
+    this.jumpCommentAfterLayout = undefined;
 
     if (this.scope === "all") {
       this.jumpAfterLayout = this.selected;
@@ -301,6 +314,48 @@ export class DiffScreen {
     }
 
     this.options.onChange();
+  }
+
+  showCommentComposer(target: CommentTarget, text: string, cursor: number): void {
+    this.blocks.showCommentComposer(target, text, cursor);
+  }
+
+  hideCommentComposer(): void {
+    this.blocks.hideCommentComposer();
+  }
+
+  repaintComments(): void {
+    this.blocks.repaintComments();
+    this.list.repaint();
+  }
+
+  isOutdated(comment: CommentTarget): boolean {
+    if (!this.changes.some((change) => change.path === comment.path)) return true;
+
+    if (this.blocks.hasTextBlock(comment.path)) return !this.blocks.hasMatchingRow(comment);
+
+    return false;
+  }
+
+  jumpToComment(comment: ReviewComment): boolean {
+    const change = this.changes.find((candidate) => candidate.path === comment.path);
+
+    if (!change) return false;
+
+    if (this.scope === "one" && !this.blocks.isSingleFile(comment.path)) {
+      this.jumpCommentAfterLayout = comment;
+      this.list.highlight(change.path);
+      void this.select(change, true);
+      return true;
+    }
+
+    this.jumpCommentAfterLayout = undefined;
+    this.selected = change;
+    this.list.highlight(change.path);
+    this.blocks.updateActiveHeader(this.activeHeaderPath());
+    const found = this.blocks.jumpToComment(comment);
+    this.options.onChange();
+    return found;
   }
 
   jumpHunk(direction: 1 | -1): HunkJumpResult {
@@ -408,7 +463,9 @@ export class DiffScreen {
     return this.repository?.base === "HEAD" ? "HEAD" : "an empty repository";
   }
 
-  private async select(change: Change | undefined): Promise<void> {
+  private async select(change: Change | undefined, keepCommentJump = false): Promise<void> {
+    if (!keepCommentJump) this.jumpCommentAfterLayout = undefined;
+
     this.selected = change;
 
     if (!change || !this.repository) return;
@@ -526,7 +583,15 @@ export class DiffScreen {
     this.blocks.show(files, scroll, this.activeHeaderPath());
     this.message.visible = false;
 
-    if (this.scope === "all" && this.jumpAfterLayout) this.queueJump();
+    if (this.jumpCommentAfterLayout) {
+      const target = this.jumpCommentAfterLayout;
+      this.jumpCommentAfterLayout = undefined;
+      queueMicrotask(() => {
+        if (!this.blocks.jumpToComment(target)) this.options.onCommentMissing();
+      });
+    } else if (this.scope === "all" && this.jumpAfterLayout) {
+      this.queueJump();
+    }
   }
 
   private showEmpty(title: string, detail: string): void {

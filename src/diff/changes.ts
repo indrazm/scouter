@@ -18,6 +18,7 @@ import type { Change, ChangeKind } from "./types";
 interface ChangeListOptions {
   onSelect: (change: Change | undefined) => void;
   onActivate: () => void;
+  commentCount?: (path: string) => number;
 }
 
 interface ChangeRow {
@@ -249,7 +250,12 @@ export class ChangeList extends ScrollBoxRenderable {
     if (folder !== ".") nameParts.push({ text: `  ${displayLabel(folder)}/`, fg: theme.dim });
 
     row.name.content = styled(nameParts);
-    row.counts.content = styled(countSegments(change));
+    const comments = this.options.commentCount?.(change.path) ?? 0;
+    const counts = countSegments(change);
+    const rightParts: Segment[] = comments
+      ? [{ text: `(${comments}) `, fg: theme.commentInk, bold: true }, ...counts]
+      : counts;
+    row.counts.content = styled(rightParts);
   }
 }
 

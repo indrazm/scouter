@@ -30,7 +30,7 @@ export interface HeaderBadge {
 export type FooterMode = "browse" | "diff";
 export type FooterFocus = "files" | "reader";
 export type DiffScope = "all" | "one";
-export type FooterPrompt = "files" | "text" | "reader";
+export type FooterPrompt = "files" | "text" | "reader" | "comment" | "comments";
 export type Hint = [key: string, action: string];
 
 export interface DocumentInfo {
@@ -51,4 +51,5 @@ export interface DiffInfo {
   removed?: number;
   hunks?: number;
   hunkIndex?: number;
+  comments?: number;
 }

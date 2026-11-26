@@ -26,6 +26,9 @@ interface Palette {
   matchBg: string;
   targetBg: string;
   targetGutter: string;
+  commentGutter: string;
+  commentBg: string;
+  commentInk: string;
   wordmark: [string, string, string];
   fallbackBackground: string;
   syntax: {
@@ -63,6 +66,9 @@ const dark: Palette = {
   matchBg: "#e5b880",
   targetBg: "#262b46",
   targetGutter: "#343b66",
+  commentGutter: "#332b0d",
+  commentBg: "#2b2610",
+  commentInk: "#facc15",
   wordmark: ["#a5b4fc", "#818cf8", "#6366f1"],
   fallbackBackground: "#131519",
   syntax: {
@@ -100,6 +106,9 @@ const light: Palette = {
   matchBg: "#ffdf5d",
   targetBg: "#e0e7ff",
   targetGutter: "#c7d2fe",
+  commentGutter: "#fde68a",
+  commentBg: "#fef9c3",
+  commentInk: "#854d0e",
   wordmark: ["#6366f1", "#4f46e5", "#3730a3"],
   fallbackBackground: "#f6f8fa",
   syntax: {
