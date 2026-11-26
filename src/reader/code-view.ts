@@ -28,8 +28,19 @@ const supportedLanguages = new Set([
   ...extraLanguages,
 ]);
 
+const EXTRA_EXTENSIONS: Record<string, string> = { nix: "nix", dockerfile: "dockerfile" };
+
+function detectFiletype(path: string): string | undefined {
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  const extension = name.includes(".") ? name.slice(name.lastIndexOf(".") + 1).toLowerCase() : "";
+
+  if (name.startsWith("Dockerfile.")) return "dockerfile";
+
+  return EXTRA_EXTENSIONS[extension] ?? pathToFiletype(path);
+}
+
 export function languageFor(path: string): string | undefined {
-  const detected = pathToFiletype(path);
+  const detected = detectFiletype(path);
   return detected && supportedLanguages.has(detected) ? detected : undefined;
 }
 
