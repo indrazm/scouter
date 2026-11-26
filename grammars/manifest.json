@@ -97,5 +97,24 @@
     "wasm": "java/tree-sitter-java.wasm",
     "wasmSha256": "4fdeac4ca6ca089f06c6f7e562abcac1733cd465728cc7031ebb73c2019122c4",
     "highlightsSha256": "576c0df8df0b116cd642140ddc508c01f9d3283582afd8581c1f35caf4d71386"
+  },
+  {
+    "filetype": "dockerfile",
+    "package": "tree-sitter-dockerfile-orchard",
+    "version": "0.1.0",
+    "license": "MIT",
+    "wasm": "dockerfile/tree-sitter-dockerfile.wasm",
+    "wasmSha256": "256a1d982a54e0765b695de3baadaf188d543a794ded6a60a06e20175ea8170f",
+    "highlightsSha256": "665444fb7c8099602c78f9563525dedc23bb227fb0a6323820eb10be2592b318"
+  },
+  {
+    "filetype": "nix",
+    "package": "tree-sitter-nix",
+    "version": "0.0.2",
+    "license": "MIT",
+    "build": "tree-sitter-cli 0.25.10 build --wasm, emscripten/emsdk 4.0.4",
+    "wasm": "nix/tree-sitter-nix.wasm",
+    "wasmSha256": "e9bb801849472c60c7bdb44c25b9fbeffdb5f69803a4a356ad92cce7d98387b9",
+    "highlightsSha256": "fef43dcb9f778c5f6d02a655f7bb6aaf3df21b41a5e35b86c635fcf293079447"
   }
 ]

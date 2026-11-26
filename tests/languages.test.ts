@@ -23,7 +23,17 @@ const samples: [file: string, source: string, word: string][] = [
   ["Cargo.toml", '[package]\nname = "scouter"\n', "package"],
   ["main.c", "int main(void) {\n    return 0;\n}\n", "return"],
   ["App.java", "class App {\n    void run() {}\n}\n", "class"],
+  ["Dockerfile", "FROM alpine:3\nRUN echo hi\n", "FROM"],
+  ["flake.nix", "let x = 1; in x\n", "let"],
 ];
+
+test("Dockerfile variants and .nix files get a grammar", () => {
+  expect(languageFor("Containerfile")).toBe("dockerfile");
+  expect(languageFor("/a/Dockerfile.dev")).toBe("dockerfile");
+  expect(languageFor("api.dockerfile")).toBe("dockerfile");
+  expect(languageFor("/a/b/default.nix")).toBe("nix");
+  expect(languageFor("Dockerfilex")).toBeUndefined();
+});
 
 test("every vendored grammar is a language Scouter highlights, and is the file that was vendored", async () => {
   for (const [file] of samples) expect(languageFor(file)).toBeString();
