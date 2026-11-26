@@ -1,4 +1,4 @@
-import { BoxRenderable, TextRenderable, type CliRenderer } from "@opentui/core";
+import { BoxRenderable, MouseButton, TextRenderable, type CliRenderer } from "@opentui/core";
 import { homedir } from "node:os";
 import { displayLabel } from "../core/files";
 import { HINT_GAP, fitHintList, hintsFor, pillLabels, promptHints, promptLabels } from "./footer-hints";
@@ -37,7 +37,10 @@ export class Footer {
   private batchDepth = 0;
   private dirty = false;
 
-  constructor(private readonly renderer: CliRenderer) {
+  constructor(
+    private readonly renderer: CliRenderer,
+    private readonly onClickComments?: () => void,
+  ) {
     this.root = new BoxRenderable(renderer, {
       id: "footer",
       width: "100%",
@@ -62,7 +65,18 @@ export class Footer {
       wrapMode: "none",
       selectable: false,
     });
-    this.right = new TextRenderable(renderer, { height: 1, flexShrink: 0, wrapMode: "none", selectable: false });
+    this.right = new TextRenderable(renderer, {
+      height: 1,
+      flexShrink: 0,
+      wrapMode: "none",
+      selectable: false,
+      onMouseDown: (event) => {
+        if (event.button !== MouseButton.LEFT || this.mode !== "diff" || !this.diff?.comments) return;
+
+        event.preventDefault();
+        this.onClickComments?.();
+      },
+    });
     this.hintRow = new TextRenderable(renderer, {
       id: "hints",
       height: 1,
@@ -248,6 +262,11 @@ export class Footer {
           });
         }
 
+        if (diff.comments) {
+          const label = `${diff.comments} ${diff.comments === 1 ? "comment" : "comments"}`;
+          facts.push({ key: "comments", segments: [{ text: label, fg: theme.commentInk }] });
+        }
+
         if (diff.added !== undefined && diff.removed !== undefined) {
           facts.push({
             key: "counts",
@@ -289,7 +308,18 @@ export class Footer {
         (total, fact, index) => total + segmentsWidth(fact.segments) + (index ? (fact.key === "count" ? 2 : 3) : 0),
         0,
       );
-    for (const key of ["encoding", "language", "files", "lines", "size", "hunks", "counts", "position", "count"]) {
+    for (const key of [
+      "encoding",
+      "language",
+      "files",
+      "lines",
+      "size",
+      "hunks",
+      "counts",
+      "comments",
+      "position",
+      "count",
+    ]) {
       if (width() <= columns) break;
 
       const index = facts.findIndex((fact) => fact.key === key);

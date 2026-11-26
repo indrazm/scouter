@@ -14,6 +14,7 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 ## What you get
 
 - **Review before you commit.** Staged, unstaged and new files, stacked in one scrolling diff. `●` means staged, `○` unstaged, `◐` both. Jump between hunks with `n` / `N`.
+- **Feedback for your agent.** Click or drag line numbers in the diff and write a comment; press `e` (or click the comment count) to review them on the comments board—jump back, edit, delete, discard all, or copy them with their quoted code ready to paste into an agent. Comments stay in memory and are never written to disk.
 - **Stays current.** Commit or save in your editor and the file list, its change marks and the open file update themselves.
 - **Find anything.** Press `/` on the file list to find a file by name, then `Tab` to search the text inside every file, with the reader previewing the highlighted result. On an open file, `/` searches that file. Every match is highlighted.
 - **Read-only and safe.** It can't edit anything, never touches your git repository, and never runs code from the folder you open.
@@ -38,6 +39,7 @@ Needs [Bun](https://bun.sh) 1.4.4+ and git.
 | `s`              | Split / unified diff (wide)            |
 | `c`              | Collapse / expand file diff            |
 | `x`              | More / normal diff context             |
+| `e`              | Review, copy or discard comments       |
 | `o`              | Open the changed file at the hunk      |
 | `m`              | Markdown: rendered / source            |
 | `w`              | Wrap long lines                        |

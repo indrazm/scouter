@@ -33,6 +33,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
     [
       ["d", "show / hide the changes screen"],
       ["n N p", "next / previous hunk"],
+      ["e", "review, copy or discard comments"],
       ["a", "all files / one file"],
       ["s", "split / unified"],
       ["c", "collapse / expand file diff"],
@@ -56,6 +57,7 @@ export const keySections: [title: string, rows: KeyRow[]][] = [
 
 export const mouseRows: KeyRow[] = [
   ["Left click", "open a file or toggle a folder"],
+  ["Click/drag #", "comment on a diff line or range (empty removes)"],
   ["Drag text", "select and copy to clipboard"],
   ["Wheel", "scroll the pane under the pointer"],
   ["Drag edge", "resize the list"],

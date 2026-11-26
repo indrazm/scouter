@@ -98,8 +98,9 @@ export function viewerBadgesFor(
   return badges;
 }
 
-export function diffFooterFor(state: DiffState): DiffInfo {
+export function diffFooterFor(state: DiffState, comments = 0): DiffInfo {
   return {
+    comments,
     location: state.selected?.path ?? state.repository,
     files: state.files,
     truncated: state.truncated,

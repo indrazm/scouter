@@ -4,7 +4,13 @@ import type { DiffScope, FooterFocus, FooterMode, FooterPrompt, Hint, Segment } 
 
 export const HINT_GAP = "   ";
 
-export const promptLabels: Record<FooterPrompt, string> = { files: "FIND", text: "TEXT", reader: "SEARCH" };
+export const promptLabels: Record<FooterPrompt, string> = {
+  files: "FIND",
+  text: "TEXT",
+  reader: "SEARCH",
+  comment: "COMMENT",
+  comments: "COMMENTS",
+};
 
 export const promptHints: Record<FooterPrompt, Hint[]> = {
   files: [
@@ -25,6 +31,23 @@ export const promptHints: Record<FooterPrompt, Hint[]> = {
     ["type", "search"],
     ["Enter", "next"],
     ["↑ ↓", "prev / next"],
+    ["Esc", "close"],
+  ],
+  comment: [
+    ["type", "comment"],
+    ["Shift+Enter", "newline"],
+    ["Enter", "save (empty removes)"],
+    ["^U", "clear"],
+    ["Esc", "cancel"],
+  ],
+  comments: [
+    ["j k", "move"],
+    ["Enter", "jump"],
+    ["e", "edit"],
+    ["x", "delete"],
+    ["X", "discard all"],
+    ["y", "Copy review context"],
+    ["c", "copy & clear"],
     ["Esc", "close"],
   ],
 };
@@ -50,6 +73,7 @@ export function hintsFor(
       ? [
           ["j k", "move"],
           ["Enter", "view"],
+          ["e", "comments"],
           ["o", "open file"],
           ["Tab", "diff"],
           ["s", "split"],
@@ -62,6 +86,8 @@ export function hintsFor(
       : [
           ["j k", "scroll"],
           ["n N", "hunk"],
+          ["click #", "comment"],
+          ["e", "comments"],
           ["o", "open file"],
           ["s", "split"],
           other,

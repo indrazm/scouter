@@ -4,6 +4,8 @@ import {
   MouseButton,
   ScrollBoxRenderable,
   TextRenderable,
+  type MouseEvent,
+  type RGBA,
   type RenderContext,
   type SyntaxStyle,
   type TreeSitterClient,
@@ -11,6 +13,10 @@ import {
 import { posix } from "node:path";
 import { displayLabel } from "../core/files";
 import { languageFor } from "../reader/code-view";
+import { CommentComposer } from "../review/comment-composer";
+import { matchCommentSpan, rangeTarget, type ReviewComments } from "../review/comments";
+import { parseRows } from "../review/diff-rows";
+import type { CommentTarget, DiffRow } from "../review/types";
 import { paintScrollbar, scrollbarStyle, styled } from "../ui/styled";
 import { theme, transparent } from "../ui/theme";
 import type { DiffScope, Segment } from "../ui/types";
@@ -19,17 +25,23 @@ import type { Change, DiffView, FilePatch, HunkJumpResult, Patch } from "./types
 
 export const MIN_SPLIT_COLUMNS = 60;
 const STAT_BAR_CELLS = 5;
+const GUTTER_PADDING = 4;
 
 interface DiffBlocksOptions {
   syntax: { style: SyntaxStyle; client: TreeSitterClient };
+  comments: ReviewComments;
+  isOutdated: (target: CommentTarget) => boolean;
   onToggleCollapse: (path: string) => void;
   onLayout: () => void;
+  onComment: (target: CommentTarget | undefined) => void;
 }
 
 interface Block {
   change: Change;
   patch: Patch;
   hunkLines: number[];
+  rows: DiffRow[];
+  painted: Set<number>;
   root: BoxRenderable;
   header: BoxRenderable;
   headerTitle: TextRenderable;
@@ -50,6 +62,18 @@ function hunkStartLines(text: string): number[] {
     lines.push(Math.max(1, Number(match[1] ?? 1)));
   }
   return lines;
+}
+
+function rowsOf(patch: Patch): DiffRow[] {
+  return patch.kind === "text" ? parseRows(patch.text) : [];
+}
+
+function baseColors(diff: DiffRenderable, mark: DiffRow["mark"] | undefined): { gutter: RGBA; content: RGBA } {
+  if (mark === "+") return { gutter: diff.addedLineNumberBg, content: diff.addedContentBg ?? diff.addedBg };
+
+  if (mark === "-") return { gutter: diff.removedLineNumberBg, content: diff.removedContentBg ?? diff.removedBg };
+
+  return { gutter: diff.lineNumberBg, content: diff.contextContentBg ?? diff.contextBg };
 }
 
 function maxGutterDigits(files: FilePatch[]): number {
@@ -138,6 +162,9 @@ export class DiffBlocks {
   private band: string = theme.fallbackBackground;
   private lastMinDigits = 0;
   private activePath?: string;
+  private readonly composer: CommentComposer;
+  private editing?: { target: CommentTarget; text: string; cursor: number };
+  private gutterDrag?: { path: string; startRow: number; endRow: number };
 
   constructor(
     private readonly context: RenderContext,
@@ -163,6 +190,8 @@ export class DiffBlocks {
       flexShrink: 0,
       minWidth: "100%",
     });
+    this.composer = new CommentComposer(context);
+    this.stack.add(this.composer.root);
     this.scroller.add(this.stack);
     this.scroller.visible = false;
   }
@@ -214,7 +243,7 @@ export class DiffBlocks {
       if (index > 0) block.header.borderColor = theme.border;
 
       this.paintHeader(block, activePath);
-      block.headerCounts.content = styled([...countSegments(block.change), ...statBarSegments(block.change)]);
+      block.headerCounts.content = this.headerCountsContent(block.change);
 
       if (block.diff) {
         block.diff.syntaxStyle = this.options.syntax.style;
@@ -232,6 +261,9 @@ export class DiffBlocks {
         block.content.content = styled([{ text: block.patch.message, fg: theme.muted }]);
       }
     }
+
+    this.composer.restyle();
+    this.repaintAll();
   }
 
   setTint(color: string): void {
@@ -240,6 +272,8 @@ export class DiffBlocks {
   }
 
   toggleCollapse(path: string, activePath: string | undefined): void {
+    if (this.gutterDrag?.path === path) this.clearGutterDrag();
+
     if (this.collapsed.has(path)) this.collapsed.delete(path);
     else this.collapsed.add(path);
 
@@ -249,17 +283,22 @@ export class DiffBlocks {
         this.paintHeader(block, activePath);
       }
     }
+
+    this.repaintAll();
   }
 
   toggleView(bodyWidth: number): boolean {
     if (this.view === "unified" && bodyWidth < MIN_SPLIT_COLUMNS) return false;
 
+    this.gutterDrag = undefined;
     this.view = this.view === "unified" ? "split" : "unified";
     for (const block of this.blocks) if (block.diff) block.diff.view = this.view;
+    this.repaintAll();
     return true;
   }
 
   setWrap(wrap: boolean): void {
+    this.gutterDrag = undefined;
     this.wrap = wrap;
     this.applyWrap();
   }
@@ -267,6 +306,10 @@ export class DiffBlocks {
   clear(): void {
     for (const block of this.blocks) block.root.destroyRecursively();
     this.blocks = [];
+    this.gutterDrag = undefined;
+    this.editing = undefined;
+    this.composer.hide();
+    this.stack.paddingBottom = 0;
   }
 
   reset(): void {
@@ -296,10 +339,12 @@ export class DiffBlocks {
         if (headerChanged || activeChanged) this.paintHeader(block, nextActivePath);
 
         if (headerChanged) {
-          block.headerCounts.content = styled([...countSegments(change), ...statBarSegments(change)]);
+          block.headerCounts.content = this.headerCountsContent(change);
         }
 
         if (!patchEqual(block.patch, patch)) {
+          if (this.gutterDrag?.path === change.path) this.gutterDrag = undefined;
+
           block.content.destroyRecursively();
           const diff = patch.kind === "text" ? this.createDiff(change, patch.text, minDigits) : undefined;
           const content = diff ?? this.createNote(patch);
@@ -307,11 +352,14 @@ export class DiffBlocks {
           block.root.add(content);
           block.patch = patch;
           block.hunkLines = patch.kind === "text" ? hunkStartLines(patch.text) : [];
+          block.rows = rowsOf(patch);
+          block.painted = new Set();
           block.content = content;
           block.diff = diff;
         }
       }
     } else {
+      this.gutterDrag = undefined;
       this.blocks = files.map((file, index) => this.createBlock(file, index, minDigits, nextActivePath));
       for (const block of this.blocks) this.stack.add(block.root);
       for (const block of previous) block.root.destroyRecursively();
@@ -373,6 +421,8 @@ export class DiffBlocks {
   followScroll(scope: DiffScope, selectedPath: string | undefined): { selected?: Change; hunkChanged: boolean } {
     if (!this.blocks.length) return { hunkChanged: false };
 
+    if (this.editing) this.placeComposer();
+
     const hunkIndex = this.currentHunkIndex();
     const hunkChanged = hunkIndex !== this.lastHunkIndex;
     this.lastHunkIndex = hunkIndex;
@@ -386,6 +436,142 @@ export class DiffBlocks {
     if (!current || current.change.path === selectedPath) return { hunkChanged };
 
     return { selected: current.change, hunkChanged };
+  }
+
+  hasTextBlock(path: string): boolean {
+    return this.blocks.some((block) => block.change.path === path && block.patch.kind === "text");
+  }
+
+  hasMatchingRow(target: CommentTarget): boolean {
+    const block = this.blocks.find((candidate) => candidate.change.path === target.path);
+
+    if (!block) return false;
+
+    return matchCommentSpan(target, block.rows) !== undefined;
+  }
+
+  jumpToComment(target: CommentTarget): boolean {
+    const block = this.blocks.find((candidate) => candidate.change.path === target.path);
+
+    if (!block) return false;
+
+    if (this.collapsed.has(target.path)) {
+      this.collapsed.delete(target.path);
+      block.content.visible = true;
+      this.paintHeader(block, this.activePath);
+    }
+
+    const span = matchCommentSpan(target, block.rows);
+
+    if (!span || !block.diff) {
+      this.scroller.scrollTo({ x: 0, y: this.blockTop(block) });
+      return false;
+    }
+
+    const top = Math.max(0, block.diff.y - this.stack.y + span.start - 2);
+    this.scroller.scrollTo({ x: 0, y: top });
+    return true;
+  }
+
+  repaintComments(): void {
+    for (const block of this.blocks) block.headerCounts.content = this.headerCountsContent(block.change);
+    this.repaintAll();
+  }
+
+  showCommentComposer(target: CommentTarget, text: string, cursor: number): void {
+    const targetChanged = this.editing?.target !== target;
+    this.editing = { target, text, cursor };
+
+    if (targetChanged) this.repaintAll();
+    else this.placeComposer();
+
+    const bottom = this.scroller.scrollTop + Math.max(1, this.scroller.viewport.height);
+    const composerTop = typeof this.composer.root.top === "number" ? this.composer.root.top : 0;
+    const composerBottom = composerTop + Math.max(this.composer.estimatedHeight(text), this.composer.root.height);
+
+    if (this.composer.root.visible && composerBottom > bottom) {
+      this.scroller.scrollBy({ x: 0, y: composerBottom - bottom });
+    }
+  }
+
+  hideCommentComposer(): void {
+    this.editing = undefined;
+    this.composer.hide();
+    this.stack.paddingBottom = 0;
+    this.repaintAll();
+  }
+
+  private editedSpan(block: Block): { start: number; end: number } | undefined {
+    const target = this.editing?.target;
+
+    if (!target || target.path !== block.change.path || this.view !== "unified" || this.wrap) return undefined;
+
+    return matchCommentSpan(target, block.rows);
+  }
+
+  private placeComposer(): void {
+    const editing = this.editing;
+
+    if (!editing) {
+      this.composer.hide();
+      this.stack.paddingBottom = 0;
+      return;
+    }
+
+    const block = this.blocks.find((candidate) => candidate.change.path === editing.target.path);
+    const span = block ? this.editedSpan(block) : undefined;
+    const inline = Boolean(block?.diff && span && block.content.visible);
+    const viewportWidth = this.scroller.viewport.width;
+    const width: number | "100%" = viewportWidth > 20 ? viewportWidth - 1 : "100%";
+    const top = inline && block?.diff && span ? block.diff.y - this.stack.y + span.end + 1 : this.scroller.scrollTop;
+    this.composer.place(this.scroller.scrollLeft, top, width);
+    this.composer.show(editing.target, editing.text, editing.cursor, this.options.isOutdated(editing.target));
+    const composerHeight = Math.max(this.composer.estimatedHeight(editing.text), this.composer.root.height);
+    this.stack.paddingBottom = inline ? composerHeight + 1 : 0;
+  }
+
+  private repaintAll(): void {
+    for (const block of this.blocks) this.paintRows(block);
+
+    this.placeComposer();
+  }
+
+  private paintRows(block: Block): void {
+    const diff = block.diff;
+
+    if (!diff) return;
+
+    if (this.view !== "unified") {
+      block.painted.clear();
+      return;
+    }
+
+    const marked = this.options.comments.markedRows(block.change.path, block.rows);
+    const special = new Set(marked.keys());
+    const edited = this.editedSpan(block);
+
+    if (edited) {
+      for (let index = edited.start; index <= edited.end; index += 1) special.add(index);
+    }
+
+    if (this.gutterDrag?.path === block.change.path) {
+      const start = Math.min(this.gutterDrag.startRow, this.gutterDrag.endRow);
+      const end = Math.max(this.gutterDrag.startRow, this.gutterDrag.endRow);
+      for (let index = start; index <= end; index += 1) special.add(index);
+    }
+
+    for (const index of block.painted) {
+      if (!special.has(index)) diff.setLineColor(index, baseColors(diff, block.rows[index]?.mark));
+    }
+
+    for (const index of special) {
+      diff.setLineColor(index, {
+        gutter: theme.commentGutter,
+        content: theme.commentBg,
+      });
+    }
+
+    block.painted = special;
   }
 
   private createBlock(
@@ -410,6 +596,8 @@ export class DiffBlocks {
       change,
       patch,
       hunkLines: patch.kind === "text" ? hunkStartLines(patch.text) : [],
+      rows: rowsOf(patch),
+      painted: new Set(),
       root,
       header,
       headerTitle,
@@ -445,6 +633,18 @@ export class DiffBlocks {
 
     if (folder !== ".") segments.push({ text: `  ${displayLabel(folder)}/`, fg: theme.dim });
 
+    return styled(segments);
+  }
+
+  private headerCountsContent(change: Change) {
+    const count = this.options.comments.countForPath(change.path);
+    const segments: Segment[] = [];
+
+    if (count > 0) {
+      segments.push({ text: `${count} ${count === 1 ? "comment" : "comments"}`, fg: theme.commentInk }, { text: "  " });
+    }
+
+    segments.push(...countSegments(change), ...statBarSegments(change));
     return styled(segments);
   }
 
@@ -488,14 +688,13 @@ export class DiffBlocks {
       content: this.headerTitleContent(change, active),
     });
     header.add(headerTitle);
-    const rightSegments: Segment[] = [...countSegments(change), ...statBarSegments(change)];
     const headerCounts = new TextRenderable(this.context, {
       height: 1,
       flexShrink: 0,
       marginLeft: 1,
       wrapMode: "none",
       selectable: false,
-      content: styled(rightSegments),
+      content: this.headerCountsContent(change),
     });
     header.add(headerCounts);
     return { header, headerTitle, headerCounts };
@@ -517,7 +716,90 @@ export class DiffBlocks {
       gutter: { minDigits, paddingLeft: 1, paddingRight: 1 },
       ...diffColors(),
       onSizeChange: () => this.options.onLayout(),
+      onMouseDown: (event) => this.startGutterDrag(change.path, event),
+      onMouseDrag: (event) => this.updateGutterDrag(change.path, event),
+      onMouseDragEnd: (event) => this.finishGutterDrag(change.path, event),
+      onMouseUp: (event) => this.finishGutterDrag(change.path, event),
     });
+  }
+
+  private clearGutterDrag(): void {
+    const drag = this.gutterDrag;
+
+    if (!drag) return;
+
+    this.gutterDrag = undefined;
+    const block = this.blocks.find((candidate) => candidate.change.path === drag.path);
+
+    if (block) this.paintRows(block);
+  }
+
+  private startGutterDrag(path: string, event: MouseEvent): void {
+    if (this.gutterDrag) this.clearGutterDrag();
+
+    const block = this.blocks.find((candidate) => candidate.change.path === path);
+    const diff = block?.diff;
+
+    if (!block || !diff || event.button !== MouseButton.LEFT || event.x - diff.x >= this.lastMinDigits + GUTTER_PADDING)
+      return;
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    if (this.view !== "unified" || this.wrap) {
+      this.options.onComment(undefined);
+      return;
+    }
+
+    const row = event.y - diff.y;
+
+    if (row < 0 || row >= block.rows.length) return;
+
+    this.gutterDrag = { path, startRow: row, endRow: row };
+    this.paintRows(block);
+  }
+
+  private updateGutterDrag(path: string, event: MouseEvent): void {
+    const drag = this.gutterDrag;
+
+    if (!drag || drag.path !== path) return;
+
+    const block = this.blocks.find((candidate) => candidate.change.path === path);
+    const diff = block?.diff;
+
+    if (!block || !diff || !block.rows.length) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    const row = Math.max(0, Math.min(block.rows.length - 1, event.y - diff.y));
+
+    if (row === drag.endRow) return;
+
+    drag.endRow = row;
+    this.paintRows(block);
+  }
+
+  private finishGutterDrag(path: string, event: MouseEvent): void {
+    const drag = this.gutterDrag;
+
+    if (!drag || drag.path !== path) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    this.gutterDrag = undefined;
+    const block = this.blocks.find((candidate) => candidate.change.path === path);
+
+    if (!block || drag.startRow >= block.rows.length) return;
+
+    const diff = block.diff;
+    const endRow =
+      diff && block.rows.length ? Math.max(0, Math.min(block.rows.length - 1, event.y - diff.y)) : drag.endRow;
+    const start = Math.min(drag.startRow, endRow);
+    const end = Math.max(drag.startRow, endRow);
+    const target = rangeTarget(path, block.rows.slice(start, end + 1));
+    this.paintRows(block);
+
+    if (target) this.options.onComment(target);
   }
 
   private createNote(patch: Patch): TextRenderable {
@@ -543,6 +825,7 @@ export class DiffBlocks {
     this.stack.flexShrink = this.wrap ? 1 : 0;
     this.scroller.contentOptions = { flexDirection: "column", width: this.wrap ? "100%" : "auto" };
     this.scroller.scrollTo({ x: 0, y: this.scroller.scrollTop });
+    this.repaintAll();
   }
 
   private blockTop(block: Block): number {

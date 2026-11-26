@@ -58,9 +58,21 @@ test.each(modes)("in %s mode text can be read on the sidebar and on the added an
   expect(contrast(palette.dim, background)).toBeGreaterThanOrEqual(3);
   expect(contrast(palette.ignored, background)).toBeGreaterThanOrEqual(1.8);
   expect(contrast(palette.ignored, background)).toBeLessThan(contrast(palette.dim, background));
-  for (const tint of [palette.addedBg, palette.removedBg, palette.targetBg, palette.rowActiveBg, palette.selectionBg]) {
+  for (const tint of [
+    palette.addedBg,
+    palette.removedBg,
+    palette.targetBg,
+    palette.commentBg,
+    palette.rowActiveBg,
+    palette.selectionBg,
+  ]) {
     expect(contrast(palette.text, tint)).toBeGreaterThanOrEqual(7);
   }
+  expect(contrast(palette.commentInk, background)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.commentInk, palette.rowActiveBg)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.commentInk, palette.commentBg)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.muted, palette.commentBg)).toBeGreaterThanOrEqual(4.5);
+  expect(contrast(palette.dim, palette.commentGutter)).toBeGreaterThanOrEqual(2.4);
   expect(contrast(palette.accent, palette.rowActiveBg)).toBeGreaterThanOrEqual(4.5);
   expect(contrast(palette.accentInk, palette.accent)).toBeGreaterThanOrEqual(4.5);
   expect(contrast(palette.matchFg, palette.matchBg)).toBeGreaterThanOrEqual(7);
